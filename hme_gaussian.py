@@ -1,19 +1,31 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Jun  9 20:22:33 2015
 
-@author: amazaspshaumyan
+
+     K - number of first levels gating options
+     P - number of second level gating options
+     N - number of observations
+     
+
 """
 
 import SoftmaxRegression as sr
 import WeightedLinearRegression as wlr
 import numpy as np
-import 
 
 
 
 
 class HME_Gaussian(object):
+    '''
+    Three level hierarchical mixture of experts model,
+    
+    This HME model consist of:  
+                               Level 1 - softmax gating function
+                               Level 2 - softmax gating functions
+                               Level 3 - linear regression
+    
+    '''
     
     
     def __init__(self,Y,X,n_gates_first, n_gates_second):
@@ -29,24 +41,44 @@ class HME_Gaussian(object):
         # coefficients of linear regression
         self.gamma            = [np.zeros([self.m,self.n_gates_second]) for i in range(self.n_gates_first)]
         # variance for error term of regression
-        self.sigma_2          = np.zeros([self.n_gates_first,self.n_gates_second])
+        self.sigma_2          = np.ones([self.n_gates_second,self.n_gates_first])
         # responsibilities
-        self.responsibilities = [np.zeros([self.n_gates_first,self.n_gates_second]) for i in range(self.m)]
+        self.responsibilities = [np.zeros([self.n_gates_first,self.n_gates_second]) for i in range(self.n)]
+        
         
     def e_step(self):
         '''
         E-step in EM algorithm for training Hierarchical Mixture of Experts
         '''
-        resp_gate_first    = sr.softmax(self.aplha,self.X)                
-        resp_gate_second   = [sr.softmax(self.beta[i], self.X) for i in range(self.n_gates_first)]
-        resp_expert        = 
+        # calculate posterior probability of first gating network
+        resp_gates_first    = sr.softmax(self.alpha,self.X)                                                  # dim = N x K
+        # calculate posterior probability of second gating network
+        resp_gates_second   = [sr.softmax(self.beta[i], self.X) for i in range(self.n_gates_first)]          # dim = [[N x P] x K]
+        # calculate posterior probability of expert model
+        resp_experts        = [wlr.norm_matrix_pdf(self.gamma[i],self.Y,self.X,self.sigma_2[:,i]) for i in range(self.n_gates_first)] # dim = [[N x P] x K]
+        for i in range(self.n):
+            # for expert & second level gating get i-th row of each matrix in corresponding responsibility list
+            expert_n     = np.array([list(resp_expert[i,:]) for resp_expert in resp_experts])                # rows = K, columns = P
+            gate_two_n   = np.array([list(resp_gate_second[i,:]) for resp_gate_second in resp_gates_second]) # rows = K, columns = P
+            gate_first_n = np.outer(resp_gates_first[i,:], np.ones(self.n_gates_second))                                                         # row  = 1, column  = K
+            self.responsibilities[i] = expert_n*gate_two_n*gate_first_n
+            self.responsibilities[i] = self.responsibilities[i]/np.sum(self.responsibilities)
+    
+
+    def m_step(self):
+        first_gate = sr.SoftmaxRegression(Y,X,)           
+            
 
     def lower_bound_likelihood(self):
-        
-    
-    def e_step(self):
         pass
     
-    def m_step(self):
-        pass
+    
+if __name__=="__main__":
+    X = np.ones([10,2])
+    X[1:5,0] = X[1:5,0] + 5
+    Y = np.random.random(10)
+    Y[0:5] = Y[0:5] + 5
+    hme = HME_Gaussian(Y,X,2,3)
+    hme.e_step()
+    
     
