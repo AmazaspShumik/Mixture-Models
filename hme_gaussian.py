@@ -60,17 +60,53 @@ class HME_Gaussian(object):
             # for expert & second level gating get i-th row of each matrix in corresponding responsibility list
             expert_n     = np.array([list(resp_expert[i,:]) for resp_expert in resp_experts])                # rows = K, columns = P
             gate_two_n   = np.array([list(resp_gate_second[i,:]) for resp_gate_second in resp_gates_second]) # rows = K, columns = P
-            gate_first_n = np.outer(resp_gates_first[i,:], np.ones(self.n_gates_second))                                                         # row  = 1, column  = K
+            gate_first_n = np.outer(resp_gates_first[i,:], np.ones(self.n_gates_second))                     # row  = K, column  = 1
             self.responsibilities[i] = expert_n*gate_two_n*gate_first_n
             self.responsibilities[i] = self.responsibilities[i]/np.sum(self.responsibilities)
     
 
     def m_step(self):
-        first_gate = sr.SoftmaxRegression(Y,X,)           
+        self._m_step_expert_network()
+        self._         
             
 
-    def lower_bound_likelihood(self):
+    def _m_step_expert_network(self):
+        '''
+        Runs maximisation step for experts in HME
+        
+        '''
+        for i in range(self.n_gates_first):
+            for j in range(self.n_gates_second):
+                weights = []
+                for n in range(self.n):
+                    weights.append(self.responsibilities[n][i,j])
+                W      = np.array(weights) 
+                expert = wlr.WeightedLinearRegression(self.X,self.Y,W)
+                expert.fit()
+                # update parameters
+                self.sigma_2[i,j] = expert.var
+                self.gamma[i]     = expert.
+                
+                
+    
+    def _m_step_gating_network_level_two(self):
+        '''
+        Runs maximization step for second level gating network in HME
+        '''
+        for i in range(self.n_gates_first):
+            for j in range(self.n_gates_second):
+                weights = []
+                for n in range(self.n):
+                    weights.append(self.responsibilities[n][i,j])
+                W = np.array(weights)
+                
+    
+    def _m_step_gating_network_level_one(self):
+        '''
+        Runs maximisation step for first level gating network in HME
+        '''
         pass
+        
     
     
 if __name__=="__main__":
