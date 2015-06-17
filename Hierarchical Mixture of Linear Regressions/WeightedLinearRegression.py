@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 Weighted Linear Regression , Expert in HME model
+
+   m - dimensionality of input (i.e. length of row in matrix X)
+   n - number of observations
 """
 
 import numpy as np
@@ -9,7 +12,8 @@ def cholesky_solver_least_squares(part_one, part_two):
     '''
     Solves least squares problem using cholesky decomposition
     
-    
+    part_one - numpy array of size 'm x m', equals X.T * X
+    part_two - numpy array of size 'm x 1', equals X.T * Y
     
     '''
     # R*R.T*Theta = part_two
@@ -32,7 +36,7 @@ def norm_pdf(theta,y,x,sigma_2):
     Theta    -  numpy array of size 'm x k', matrix of parameters
     Y        -  numpy array of size 'n x 1', vector of dependent variables
     X        -  numpy array of size 'n x m', matrix of inputs 
-    sigma_2  -  vector of variances 'm x 1', vector of variances
+    sigma_2  -  numpy array of size 'm x 1', vector of variances
     
     Output:
     -------
@@ -48,20 +52,30 @@ def norm_pdf(theta,y,x,sigma_2):
 
 
 class WeightedLinearRegression(object):
+    '''
+    Weighted Linear Regression
+    
+    Fits weighted  regression 
+        
+    Input:
+    ------
+    
+    Y                        - numpy array of size 'n x 1', vector of dependent variables
+    X                        - numpy array of size 'n x m', matrix of inputs
+    weights                  - numpy array of size 'n x 1', vector of observation weights
+    
+    '''
     
     def __init__(self,X,Y,weights):
         self.theta        = 0             # coefficients excluding bias term
-        self.weights      = weights       # weighting of observations
         self.mse          = 0             # mean squared error
-        self.X            = X
-        self.Y            = Y
         self.var          = 0             # fitted variance
-
+        self.Y            = Y
+        self.X            = X
+        self.weights      = weights
 
     def fit(self):
-        '''
-        Fits weighted ridge regression 
-        '''
+        ''' Fits weighted regression '''
         n,m         =  np.shape(self.X)
         W           =  np.diagflat(self.weights)
         part_one    =  np.dot(np.dot(self.X.T,W),self.X)
@@ -69,6 +83,7 @@ class WeightedLinearRegression(object):
         self.theta  =  cholesky_solver_least_squares(part_one, part_two)
         vec_1       =  (self.Y - np.dot(self.X,self.theta))
         self.var    =  np.dot(vec_1,np.dot(vec_1,W))/np.sum(W)
+        
         
 
     def predict(self,X_test):

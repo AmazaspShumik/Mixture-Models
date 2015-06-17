@@ -63,6 +63,7 @@ def negative_log_multinomial_gradient(Theta, Y, X, k, vec_to_mat = False):
     Theta   - numpy array of size 'm x k', where each column represents vector of coefficients
     Y       - scipy.sparse.csr_matrix (sparse matrix) of size 'n x k'
     X       - numpy array of size 'n x m', vector of input
+    k       - int, number of classes
     
     Output:
     ------
@@ -89,6 +90,7 @@ def negative_log_multinomial_likelihood(Theta, Y, X,k, vec_to_mat = False):
     Theta   - numpy array of size 'm x k', where each column represents vector of coefficients
     Y       - scipy.sparse.csr_matrix (sparse matrix) of size 'n x k'
     X       - numpy array of size 'n x m', vector of input
+    k       - int, number of classes
     
     Output:
     ------
