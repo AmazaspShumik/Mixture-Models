@@ -21,7 +21,7 @@ def cholesky_solver_least_squares(part_one, part_two):
     return Theta
     
     
-def norm_matrix_pdf(Theta,Y,X,sigma_2):
+def norm_pdf(theta,y,x,sigma_2):
     '''
     Calculates probability of observing Y given Theta and sigma
     
@@ -40,13 +40,9 @@ def norm_matrix_pdf(Theta,Y,X,sigma_2):
              - int
     
     '''
-    n,m        = np.shape(X)
-    m,k        = np.shape(Theta)
     normaliser = 1.0/np.sqrt(2*np.pi*sigma_2)
-    M          = np.dot(X,Theta)
-    Y_exp      = np.outer(Y,np.ones(k))
-    exp        = np.exp( -0.5 * (Y_exp - M) * (Y_exp - M)  / sigma_2 )
-    return normaliser * exp
+    u          = y - np.dot(x,theta)
+    return normaliser* np.exp( -0.5 * u*u / sigma_2 )
     
     
 
@@ -82,11 +78,7 @@ class WeightedLinearRegression(object):
         fitted = np.dot(X_test,)
         return fitted
 
-        
-    def get_fitted_params(self):
-        return {self.theta, self.var}
-        
-        
+
 if __name__=="__main__":
     X = np.ones([100,3])
     X[:,0] = np.linspace(0,10,100)+np.random.random(100)
@@ -95,6 +87,3 @@ if __name__=="__main__":
     weights = np.ones(100)
     wlr = WeightedLinearRegression(X,Y,weights)
     wlr.fit()
-        
-         
-  

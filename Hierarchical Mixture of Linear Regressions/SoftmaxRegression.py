@@ -50,13 +50,11 @@ def softmax(Theta,X):
     n,m = np.shape(X)
     m,k = np.shape(Theta)
     max_vec = np.max( np.dot(X,Theta), axis = 1)                       # substract max element, prevents overflow
-    print np.dot(X,Theta)
-    print np.outer(max_vec,np.ones(k))
     X_Theta = np.dot(X,Theta) - np.outer(max_vec,np.ones(k))
     return np.exp( X_Theta )/np.outer(np.sum( np.exp( X_Theta ) , axis = 1),np.ones(k))
     
     
-def negative_log_multinomial_gradient(Theta, Y, X, k,weights, vec_to_mat = False):
+def negative_log_multinomial_gradient(Theta, Y, X, k, vec_to_mat = False):
     '''
     Calculates gradient for multinomial model.
     
@@ -65,7 +63,6 @@ def negative_log_multinomial_gradient(Theta, Y, X, k,weights, vec_to_mat = False
     Theta   - numpy array of size 'm x k', where each column represents vector of coefficients
     Y       - scipy.sparse.csr_matrix (sparse matrix) of size 'n x k'
     X       - numpy array of size 'n x m', vector of input
-    weights - numpy array of size 'n x 1', vector of weightings for observations 
     
     Output:
     ------
@@ -78,13 +75,12 @@ def negative_log_multinomial_gradient(Theta, Y, X, k,weights, vec_to_mat = False
     m,k = np.shape(Theta)
     P             = softmax(Theta,X)                                    # matrix of class probabilities
     resp          = (Y - P)                                             # dim(resp) = n x k
-    weighted_obs  = np.dot(X.T,np.diagflat(weights))                    # dim(weighted_obs)  = m x n
-    gradient      = np.dot(weighted_obs, resp)                          # dim(gradient)      = m x k 
+    gradient      = np.dot(X.T, resp)                                   # dim(gradient)      = m x k 
     gradient      = np.reshape(np.array(gradient),m*k)
     return -1.0/n*gradient
 
 
-def negative_log_multinomial_likelihood(Theta, Y, X,k, weights, vec_to_mat = False):
+def negative_log_multinomial_likelihood(Theta, Y, X,k, vec_to_mat = False):
     '''
     Calculates negative log likelihood.
     
@@ -93,7 +89,6 @@ def negative_log_multinomial_likelihood(Theta, Y, X,k, weights, vec_to_mat = Fal
     Theta   - numpy array of size 'm x k', where each column represents vector of coefficients
     Y       - scipy.sparse.csr_matrix (sparse matrix) of size 'n x k'
     X       - numpy array of size 'n x m', vector of input
-    weights - numpy array of size 'n x 1', vector of weightings for observations 
     
     Output:
     ------
@@ -105,8 +100,7 @@ def negative_log_multinomial_likelihood(Theta, Y, X,k, weights, vec_to_mat = Fal
         Theta = np.reshape(Theta,(m,k))
     m,k             = np.shape(Theta)
     P               = softmax(Theta,X)
-    likelihood_vec  = np.sum(Y.dot(np.eye(k))*np.log(P), axis = 1)
-    likelihood      = np.dot(weights,likelihood_vec)
+    likelihood      = np.sum(Y.dot(np.eye(k))*np.log(P))
     return -1.0/n*likelihood
     
     
@@ -123,7 +117,6 @@ def cost_grad(Theta,Y,X,k,weights):
     Y       - scipy.sparse.csr_matrix (sparse matrix) of size 'n x k'
     X       - numpy array of size 'n x m', vector of input
     k       - int, number of classes
-    weights - numpy array of size 'n x 1', vector of weightings for observations 
     
     Output:
     -------
@@ -131,13 +124,14 @@ def cost_grad(Theta,Y,X,k,weights):
     tuple(int, np.array) - tuple, where first element is value of cost function,
                            second element is numpy array, representing gradient
     '''
-    n,m   = np.shape(X)
-    Theta = np.reshape(Theta,(m,k))                                         # Theta transformed to matrix
-    P     = softmax(Theta,X)              # Matrix of probabilities
-    cost  = -1.0/n*np.dot(weights,np.sum(Y.dot(np.eye(k))*np.log(P),axis = 1))  # E y_i*w_i*log(p_i) (weighted cost)
-    X_w   = np.dot(X.T,np.diagflat(weights))                                # weighted observations
-    grad  = -1.0/n*np.dot(X_w,(Y-P))
-    grad = np.array(grad)                                                   # gradient matrix of size m x k (make Fortran contigious)
+    n,m     = np.shape(X)
+    Theta   = np.reshape(Theta,(m,k))                                         # Theta transformed to matrix
+    P       = softmax(Theta,X)                                                # Matrix of probabilities
+    unweighted = np.sum(Y.dot(np.eye(k))*np.log(P), axis = 1)
+    cost    = -1.0/n*np.dot(weights,unweighted)                       # E y_i*w_i*log(p_i) (weighted cost)
+    resid   = (Y.dot(np.eye(k))-P)
+    grad    = -1.0/n*np.dot(np.dot(X.T,np.diagflat(weights)),resid)
+    grad    = np.array(grad)                                                   # gradient matrix of size m x k (make Fortran contigious)
     return (cost, np.reshape(grad,(m*k,)))
     
 
@@ -166,7 +160,7 @@ def target_preprocessing(Y,k):
     el = Y[0]
     out[:,0] = 1*(Y==el)
     out[:,1] = 1*(Y!=el)
-    return tuple([csr_matrix(out), el])
+    return csr_matrix(out)
 
     
 #----------------------------------------  Softmax Regression  --------------------------------------------#
@@ -181,32 +175,40 @@ class SoftmaxRegression(object):
     ----------
     Y            -   numpy array of size 'n x 1', dependent variable
     X            -   numpy array of size 'n x m', explanatory variable
-    weights      -   numpy array of size 'n x 1', weighting of observation
     K            -   int, number of classes for classification
     max_iter     -   int, maximum nmber of iterations            (default=1000)
     tolerance    -   float, precision threshold for convergence  (default=1e-5)
 
     '''
     
-    def __init__(self,Y,X,weights,K, tolerance = 1e-5, max_iter = 1000):
-        self.labels                 = set(list(Y)) 
-        self.X                      = X
-        self.Y, self.transformer    = target_preprocessing(Y,K)
-        self.weights                = weights
+    def __init__(self,tolerance = 1e-3, max_iter = 100):
         self.tolerance              = tolerance
         self.max_iter               = max_iter
-        self.k                      = K
         self.theta                  = 0
     
-    def fit(self):
+    def fit_vector_output(self,Y,X,K,weights):
         '''
         Fits parameters of softmax regression l-bfgs-b optimization procedure
         '''
-        fitter          = lambda theta: cost_grad(theta,self.Y,self.X,self.k,self.weights)
-        n,m             = np.shape(self.X)
-        theta_initial   = np.zeros(m*self.k, dtype = np.float)
+        # ground truth matrix
+        Y_gt                       = target_preprocessing(Y,K) 
+        self._fit(Y_gt,X,K,weights)
+        
+    def fit_matrix_output(self,Y,X,weights):
+        n,k   =  np.shape(Y)
+        self._fit(Y,X,k,weights)
+        
+        
+    def _fit(self,Y_gt,X,k, weights):
+        '''
+        Fits parameters of softmax regression l-bfgs-b optimization procedure
+        '''
+        fitter          = lambda theta: cost_grad(theta,Y_gt,X,k,weights)
+        n,m             = np.shape(X)
+        theta_initial   = np.zeros(m*k, dtype = np.float)
         theta,J,D       = fmin_l_bfgs_b(fitter,theta_initial,fprime = None,pgtol = self.tolerance,maxiter = self.max_iter)
-        self.theta      = np.reshape(theta,(m,self.k))
+        self.theta      = np.reshape(theta,(m,k))
+        
         
     def predict_probs(self,X_test):
         '''
@@ -234,3 +236,14 @@ class SoftmaxRegression(object):
 
         '''
         return self.theta
+        
+        
+if __name__=="__main__":
+    X = np.ones([4000,3])
+    X[0:2000,0:2]  = np.random.random([2000,2])+10
+    X[2000:4000,0:2] = np.random.random([2000,2])+20
+    Y       = np.ones(4000)
+    Y[0:2000] = np.zeros(2000)
+    sr = SoftmaxRegression()
+    sr.fit_vector_output(Y,X,2, np.ones(4000))
+  
