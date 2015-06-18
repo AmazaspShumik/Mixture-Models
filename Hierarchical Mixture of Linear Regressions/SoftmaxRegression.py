@@ -238,14 +238,5 @@ class SoftmaxRegression(object):
 
         '''
         return self.theta
-        
-        
-if __name__=="__main__":
-    X = np.ones([4000,3])
-    X[0:2000,0:2]  = np.random.random([2000,2])+10
-    X[2000:4000,0:2] = np.random.random([2000,2])+20
-    Y       = np.ones(4000)
-    Y[0:2000] = np.zeros(2000)
-    sr = SoftmaxRegression()
-    sr.fit_vector_output(Y,X,2, np.ones(4000))
+
   

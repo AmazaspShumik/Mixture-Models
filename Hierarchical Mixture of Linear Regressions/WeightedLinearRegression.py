@@ -94,11 +94,3 @@ class WeightedLinearRegression(object):
         return fitted
 
 
-if __name__=="__main__":
-    X = np.ones([100,3])
-    X[:,0] = np.linspace(0,10,100)+np.random.random(100)
-    X[:,1] = np.linspace(0,10,100)+np.random.random(100)
-    Y = 2*X[:,0] + 4*X[:,1] + np.random.normal(0,1,100) -  2*np.ones(100)
-    weights = np.ones(100)
-    wlr = WeightedLinearRegression(X,Y,weights)
-    wlr.fit()

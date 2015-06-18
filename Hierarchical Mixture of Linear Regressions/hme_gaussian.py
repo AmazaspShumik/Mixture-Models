@@ -234,14 +234,13 @@ class HME_Gaussian(object):
             
 
 if __name__=="__main__":
-    X = np.ones([6000,3])
-    X[:,0] = np.linspace(0,10,6000)+np.random.random(6000)
-    X[:,1] = np.linspace(0,40,6000)+np.random.normal(1,3,6000)
+    X = np.ones([6000,2])
+    X[:,0] = np.linspace(0,6,6000)
     Y = np.zeros(6000)
-    Y[0:3000] = 2*X[0:3000,0] + 4*X[0:3000,1] + np.random.normal(0,1,3000) -  2*np.ones(3000)
-    Y[3000:6000] = 2*X[3000:6000,0] + 4*X[3000:6000,1] + np.random.normal(0,1,3000) +100*np.ones(3000)
-    hme = HME_Gaussian(Y,X,2,4)
+    Y = 10*np.sin(X[:,0])+np.random.normal(0,1,6000)
+    hme = HME_Gaussian(Y,X,12,8)
     hme.iterate()
+    Y_hat = hme.predict_mean(X)
 
     
     
