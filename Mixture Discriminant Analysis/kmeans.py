@@ -5,6 +5,9 @@ Created on Thu Jun 18 21:59:40 2015
 @author: amazaspshaumyan
 """
 
+import numpy as np
+import random
+
 class Kmeans(object):
     '''
     K-means algorihm for clustering.
@@ -24,7 +27,6 @@ class Kmeans(object):
     
     def __init__(self, clusters, dim, epsilon, iteration_limit, data):
         self.k = clusters
-        self.data = [extract_features(line) for line in data]
         self.m = dim
         self.r = [0]*len(data) # vector of cluster assignments
         self.convergence_epsilon = epsilon
@@ -120,7 +122,7 @@ class Kmeans(object):
         self.final_clusters = clusters
         
         
-    def gmm_params(self):
+    def mda_params(self):
         ''' 
         Calculates initial parameters for GMM based on cluster allocation of
         points in best K-means
