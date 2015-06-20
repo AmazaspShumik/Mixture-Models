@@ -236,16 +236,7 @@ class HME_Gaussian(object):
             return lo
         else:
             return x
-            
 
-if __name__=="__main__":
-    X = np.ones([600,2])
-    X[:,0] = np.linspace(0,6,600)
-    Y = 10*X[:,0]+np.random.normal(0,1,600) +3*X[:,1]
-    Y[300:600] = 100*np.ones(300)
-    hme = HME_Gaussian(Y,X,7,[2,3,3,6,10,2,8])
-    hme.iterate()
-    Y_hat = hme.predict_mean(X)
 
     
     
