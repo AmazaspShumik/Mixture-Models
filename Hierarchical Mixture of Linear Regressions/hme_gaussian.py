@@ -40,7 +40,7 @@ class HME_Gaussian(object):
     '''
     
     
-    def __init__(self,Y,X,n_gates_first, n_gates_second,
+    def __init__(self,Y,X,n_gates_first, clusters,
                                          error_bound_resp = 1e-10,
                                          max_iter         = 100, 
                                          converge         = 1e-6, 
@@ -50,17 +50,19 @@ class HME_Gaussian(object):
         self.X                     = X               
         self.n,self.m              = np.shape(X)
         self.n_gates_first         = n_gates_first   
-        self.n_gates_second        = n_gates_second
+        self.clusters              = clusters
         # parameters for first gating network
         self.alpha                 = np.random.random([self.m,self.n_gates_first])
         # parameters for second gating network
-        self.beta                  = np.random.random([self.n_gates_first,self.m,self.n_gates_second])
+        self.beta                  = [np.random.random([self.m,self.clusters[i]]) for i in range(self.n_gates_first)]
         # coefficients of linear regression
-        self.gamma                 = np.random.random([self.n_gates_first,self.m,self.n_gates_second])
+        self.gamma                 = [np.random.random([self.m,self.clusters[i]]) for i in range(self.n_gates_first)]
         # variance for error term of regression
-        self.sigma_2               = np.ones([self.n_gates_second,self.n_gates_first])
+        self.sigma_2               = [np.ones(self.clusters[i]) for i in range(self.n_gates_first)]
         # responsibilities
-        self.responsibilities      = np.random.random([self.n,self.n_gates_first,self.n_gates_second])
+        self.responsibilities      = []
+        for i in range(self.n):
+            self.responsibilities.append([np.random.random(self.clusters[j]) for j in range(self.n_gates_first)])
         # accuracy threshold to prevent underflow in responsiilities calculation
         self.error_bound_resp      = error_bound_resp
         # list of lower bounds of log-likelihood of hme model
@@ -79,7 +81,8 @@ class HME_Gaussian(object):
             if delta > self.convergence_threshold:
                 self.m_step()
                 if self.verbose:
-                    print "iteration {0} completed, lower bound of log-likelihood is {1} ...".format(i,self.lower_bounds[-1])
+                    iteration_verbose = "iteration {0} completed, lower bound of log-likelihood is {1} "
+                    print iteration_verbose.format(i,self.lower_bounds[-1])
             else:
                 print "algorithm converged"
                 break
@@ -94,8 +97,7 @@ class HME_Gaussian(object):
         Finds posterior probability of latent variable and lower bound of 
         log-likelihood.
         '''
-        lower_bound,self.responsibilities = self._responsibilities_likelihood_compute()
-        self.lower_bounds.append(lower_bound)
+        self._responsibilities_likelihood_compute()
 
 
     def _responsibilities_likelihood_compute(self):
@@ -105,7 +107,6 @@ class HME_Gaussian(object):
         '''
         # lower bound of log-likelihood function
         lower_bound       = 0.0
-        responsibilities  = [np.zeros([self.n_gates_first,self.n_gates_second]) for i in range(self.n)]
         
         # calculate posterior probability of first gating network , dim = N x K
         resp_gates_first  = sr.softmax(self.alpha,self.X)                                                  
@@ -116,15 +117,15 @@ class HME_Gaussian(object):
         
         # calculate posterior probability of experts, given latent variables for first and second gates, 
         # dim = [[N x P] x K]
-        resp_experts      = [np.zeros([self.n,self.n_gates_second]) for i in range(self.n_gates_first)]        
+        resp_experts      = [np.zeros([self.n,self.clusters[i]]) for i in range(self.n_gates_first)]        
         for i in range(self.n_gates_first):
-            for j in range(self.n_gates_second):
-                resp_experts[i][:,j] = wlr.norm_pdf(self.gamma[i][:,j],self.Y,self.X,self.sigma_2[j,i])
+            for j in range(self.clusters[i]):
+                resp_experts[i][:,j] = wlr.norm_pdf(self.gamma[i][:,j],self.Y,self.X,self.sigma_2[i][j])
         
         # calculate responsibilities and lower bound of likelihood function        
         for n in range(self.n):
             for i in range(self.n_gates_first):
-                for j in range(self.n_gates_second):
+                for j in range(self.clusters[i]):
                     
                     # prevent underflow & overflow for expert network
                     expert      = self.bounded_variable(resp_experts[i][n,j],
@@ -142,15 +143,15 @@ class HME_Gaussian(object):
                                                         1-self.error_bound_resp)
                     
                     # update lower bound
-                    lower_bound += (np.log(expert)+np.log(gate_first)+np.log(gate_second))*self.responsibilities[n][i,j]                    
+                    lower_bound += (np.log(expert)+np.log(gate_first)+np.log(gate_second))*self.responsibilities[n][i][j]
                     
                     # calculates p(Z_1 , Z_2 | X, Y)*P(Y|X)                    
-                    responsibilities[n][i,j] = expert*gate_first*gate_second
+                    self.responsibilities[n][i][j] = expert*gate_first*gate_second   # ??? if use lower_bound loose accuracy???
             #  normaliser = p(Y | X) , sum over both latent variables
-            normaliser = np.sum(responsibilities[n])
+            normaliser = sum([np.sum(e) for e in self.responsibilities[n]])
             # responsibility p(Z_1 , Z_2 | X, Y)
-            responsibilities[n] /= normaliser
-        return [lower_bound,responsibilities]
+            self.responsibilities[n] /= normaliser
+        self.lower_bounds.append(lower_bound)
             
             
     #--------------------------------------- M-step ---------------------------------------------#
@@ -171,14 +172,14 @@ class HME_Gaussian(object):
         Weighted Linear regression for optimising parameters of experts.
         '''
         for i in range(self.n_gates_first):
-            for j in range(self.n_gates_second):
+            for j in range(self.clusters[i]):
                 weights = []
                 for n in range(self.n):
-                    weights.append(self.responsibilities[n][i,j])
+                    weights.append(self.responsibilities[n][i][j])
                 W      = np.array(weights) 
                 expert = wlr.WeightedLinearRegression(self.X,self.Y,W)
                 expert.fit()
-                self.sigma_2[j,i]   = expert.var
+                self.sigma_2[i][j]  = expert.var
                 self.gamma[i][:,j]  = expert.theta
                 
     
@@ -190,19 +191,23 @@ class HME_Gaussian(object):
         
         '''
         # first level gating network optimization
-        H_first          = np.array([np.sum(self.responsibilities[i],axis = 1) for i in range(self.n)])
+        H_first          = np.array([ [np.sum(self.responsibilities[i][j]) 
+                                                        for j in range(self.n_gates_first)] 
+                                                        for i in range(self.n)])
         gate_first_level = sr.SoftmaxRegression()
         gate_first_level.fit_matrix_output(H_first,self.X, np.ones(self.n))
+        #print H_first
         
         # second level gating network optimization
-        H_second = np.zeros([self.n, self.n_gates_second])
+        
         for i in range(self.n_gates_first):
+            H_second = []
             weights = np.zeros(self.n)
             for n in range(self.n):
-                H_second[n,:]     = self.responsibilities[n][i,:]/H_first[n,i]
+                H_second.append(self.responsibilities[n][i]/H_first[n,i])
                 weights[n]        = H_first[n,i]
             gate_second_level = sr.SoftmaxRegression()
-            gate_second_level.fit_matrix_output(H_second,self.X, weights)
+            gate_second_level.fit_matrix_output(np.array(H_second),self.X, weights)
             self.beta[i]      = gate_second_level.theta
 
 
@@ -213,7 +218,7 @@ class HME_Gaussian(object):
         for i in range(self.n_gates_first):
             pred_expert   = np.dot(X,self.gamma[i])
             pred_gate_two = sr.softmax(self.beta[i],X)
-            prediction   += pred_gate_one[:,i]*np.sum( pred_expert * pred_gate_two , axis = 1)
+            prediction   += pred_gate_one[:,i]*np.sum( pred_expert * pred_gate_two ,axis = 1)
         return prediction
     
     
@@ -234,11 +239,11 @@ class HME_Gaussian(object):
             
 
 if __name__=="__main__":
-    X = np.ones([6000,2])
-    X[:,0] = np.linspace(0,6,6000)
-    Y = np.zeros(6000)
-    Y = 10*np.sin(X[:,0])+np.random.normal(0,1,6000)
-    hme = HME_Gaussian(Y,X,12,8)
+    X = np.ones([600,2])
+    X[:,0] = np.linspace(0,6,600)
+    Y = 10*X[:,0]+np.random.normal(0,1,600) +3*X[:,1]
+    Y[300:600] = 100*np.ones(300)
+    hme = HME_Gaussian(Y,X,7,[2,3,3,6,10,2,8])
     hme.iterate()
     Y_hat = hme.predict_mean(X)
 
