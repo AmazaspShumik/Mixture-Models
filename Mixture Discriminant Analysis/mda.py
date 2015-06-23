@@ -41,6 +41,9 @@ class MDA(object):
         self._initialise_params()
         self._iterate()
         
+    def _posterior_prob(self):
+        
+        
         
     def _initialise_params(self):
         '''Runs k-means algorithm for parameter initialisation'''
