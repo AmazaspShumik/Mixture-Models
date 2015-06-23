@@ -3,6 +3,7 @@
 import numpy as np
 from scipy.stats import multivariate_normal as mvn
 import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
 
 class MDA(object):
     '''
@@ -11,7 +12,7 @@ class MDA(object):
     
     def __init__(self,gt,X,clusters, max_iter_init = 100, init_restarts       = 2, 
                                                           init_conv_theshold  = 1e-2,
-                                                          iter_conv_threshold = 1e-8,
+                                                          iter_conv_threshold = 1e-20,
                                                           max_iter            = 900,
                                                           verbose             = True,
                                                           accuracy            = 1e-5):
@@ -21,11 +22,11 @@ class MDA(object):
         self.k                   =  np.shape(Y)[1]            # k - number of classes
         self.clusters            =  clusters
         self.class_prior         =  np.zeros(self.m)          # class prior probabilities
-        self.latent_var_prior    =  [np.random.random(clusters[i]) for i in range(self.k)] 
+        self.latent_var_prior    =  [np.ones(clusters[i])/clusters[i] for i in range(self.k)] 
         self.freq                =  np.sum(self.Y, axis = 0)  # number of elements in each class
         self.covar               =  np.eye(self.m)
-        self.mu                  =  [np.random.random([self.m,clusters[i]]) for i in range(self.k)] # means
-        self.responsibilities    =  [np.random.random([self.n,clusters[i]]) for i in range(self.k)]
+        self.mu                  =  [np.zeros([self.m,clusters[i]]) for i in range(self.k)]  # means
+        self.responsibilities    =  [0.001*np.zeros([self.n,clusters[i]]) for i in range(self.k)]
         self.lower_bounds        =  []
         self.kmeans_maxiter      =  max_iter_init
         self.kmeans_retsarts     =  init_restarts
@@ -36,15 +37,37 @@ class MDA(object):
         self.accuracy            =  accuracy
         
         
-    def initialise_params(self):
-        '''Runs k-means algorithm for parameter initialisation'''        
-        pass
+    def train(self):
+        self._initialise_params()
+        self._iterate()
         
         
+    def _initialise_params(self):
+        '''Runs k-means algorithm for parameter initialisation'''
         
-    def iterate(self):
-        ''' '''
+        # initialise class priors
         self._class_prior_compute()
+        
+        # calculate responsibilities using k-means results      
+        for i,cluster in enumerate(self.clusters):
+            kmeans = KMeans(n_clusters = cluster, 
+                            max_iter    = self.kmeans_maxiter,
+                            init       = "k-means++",
+                            tol        = self.kmeans_theshold)
+            kmeans.fit(self.X[self.Y[:,i]==1,:])
+            prediction = kmeans.predict(self.X[self.Y[:,i]==1,:])
+            #covar = np.zeros([self.m,self.m])
+            for j in range(cluster):
+                self.responsibilities[i][self.Y[:,i]==1,j] = 1*(prediction==j)
+                
+        # initialise parameters of mda through M-step
+        self.m_step()
+        if self.verbose:
+            print "Initialization step complete"
+            
+
+    def _iterate(self):
+        ''' '''
         delta = 1
         for i in range(self.max_iter):
             self.e_step()
@@ -64,22 +87,23 @@ class MDA(object):
     def e_step(self):
         self._e_step_lower_bound_likelihood()
         
+        
     def _e_step_lower_bound_likelihood(self):
         '''
         Calculates posterior distribution of latent variable for each class
         and lower bound for log-likelihood of data
         '''
         lower_bound = 0.0
+
         for i,resp_k in enumerate(self.responsibilities):
             for j in range(self.clusters[i]):
-                prior            = mvn.pdf(X,self.mu[i][:,j],self.covar),self.accuracy,1-self.accuracy)                       # prevent underflow
-                weighting        = self.Y[:,i] * self.responsibilities[i][:,j]
+                prior            = self.bounded_variable(mvn.pdf(self.X,self.mu[i][:,j],self.covar),self.accuracy,1-self.accuracy)
+                weighting        = self.Y[:,i] * resp_k[:,j]
                 w                =  weighting*np.log(prior) + weighting*np.log(self.latent_var_prior[i][j])
-                lower_bound     += (np.sum(w))
+                lower_bound     += np.sum(w)
                 resp_k[:,j]      = prior*self.latent_var_prior[i][j]
             normaliser = np.sum(resp_k, axis = 1)
             resp_k    /= np.outer(normaliser,np.ones(self.clusters[i]))
-            lower_bound += np.log(self.class_prior[i])*self.freq[i]
         self.lower_bounds.append(lower_bound)
         
         
@@ -90,23 +114,22 @@ class MDA(object):
         '''
         covar = np.zeros([self.m,self.m])
         for i in range(self.k):
-            
-            # calculate mixing probabilities
-            class_indicator          = np.outer(self.Y[:,i],np.ones(self.clusters[i]))*self.responsibilities[i]
-            weighted_freq            = np.sum(class_indicator , axis = 0)
-            self.latent_var_prior[i] = weighted_freq/self.freq
-            
-            # calculate means
-            weighted_means           = np.array([np.sum(np.dot(X.T,np.diagflat(class_indicator[:,j])), axis = 1) 
-                                                 for j in range(self.clusters[i])]).T
-            self.mu[i]               = weighted_means / np.outer(weighted_freq,np.ones(self.m)).T
-
-            # calculate pooled covariance matrix
             for j in range(self.clusters[i]):
+                
+                # calculate mixing probabilities
+                class_indicator          = self.Y[:,i]*self.responsibilities[i][:,j]
+                self.latent_var_prior[i][j] = np.sum(class_indicator)/self.freq[i]
+    
+                # calculate means
+                weighted_means           = np.sum(np.dot(X.T, np.diagflat(class_indicator)), axis=1)
+                self.mu[i][:,j]               = weighted_means / np.sum(class_indicator)
+                
+                # calculate pooled covariance matrix
                 centered = self.X - np.outer(self.mu[i][:,j],np.ones(self.n)).T
-                covar   += np.dot(np.dot(centered.T, np.diagflat(class_indicator[:,j])),centered)
-            self.covar = covar/self.n
-        
+                addition = np.dot(np.dot(centered.T, np.diagflat(class_indicator)),centered)
+                covar   += addition
+                
+        self.covar = covar/self.n
 
 
     def _class_prior_compute(self):
@@ -122,27 +145,29 @@ class MDA(object):
         Returns 'x' if 'x' is between 'lo' and 'hi', 'hi' if x is larger than 'hi'
         and 'lo' if x is lower than 'lo'
         '''
-        if   x > hi:
-            return hi*np.ones(len(x))
-        elif x < lo:
-            return lo*np.ones(len(x))
-        else:
-            return x 
+        x[x>hi]=hi
+        x[x<lo]=lo
+        return x
         
         
 if __name__=="__main__":
-    X = np.random.normal(0,1,[100,3])
-    X[0:25,:] -= 10*np.ones([25,3])
-    X[50:75,:]+= 15*np.ones([25,3])
-    X[75:100,:]+= 5*np.ones([25,3])
-    Y = np.zeros([100,2])
-    Y[0:50,0] = 1
-    Y[50:100,1] = 1
+    X = np.random.normal(0,0.2,[24,2])
+    X[0:6,0] = np.random.normal(2,0.2,6)
+    X[0:6,1] = np.random.normal(2,0.2,6)
+    X[6:12,0] = np.random.normal(3,0.2,6)
+    X[6:12,1] = np.random.normal(4,0.2,6)
+    X[12:18,:]  = np.random.normal(0,0.2,[6,2])
+    X[18:24,:]  = np.random.normal(-4,0.2,[6,2])
+    #X[0:12,:] = np.random.normal(0,1,[12,2])
+    #X[12:24,:] = np.random.normal(4,1,[12,2])
+    Y = np.zeros([24,2])
+    Y[0:12,0] = 1
+    Y[12:24,1] = 1
     plt.plot(X[:,0],X[:,1],"b+")
     mda = MDA(Y,X,[2,2])
-    mda._class_prior_compute()
-    for i in range(100):
-        mda.e_step()
-        mda.m_step()
+    mda.train()
+    
+    
+    
     
     
