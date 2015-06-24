@@ -84,6 +84,9 @@ class MDA(object):
         
         
     def train(self):
+        '''
+        Train model
+        '''
         self._initialise_params()
         self._iterate()
         
@@ -124,7 +127,7 @@ class MDA(object):
                 self.responsibilities[i][self.Y[:,i]==1,j] = 1*(prediction==j)
                 
         # initialise parameters of mda through M-step
-        self.m_step()
+        self._m_step()
         if self.verbose:
             print "Initialization step complete"
             
@@ -143,7 +146,7 @@ class MDA(object):
                 
             # if change in lower bound for likelihood is larger than threshold continue EM algorithm
             if delta > self.mda_threshold:
-                self.m_step()
+                self._m_step()
                 if self.verbose:
                     iteration_verbose = "iteration {0} completed, lower bound of log-likelihood is {1} "
                     print iteration_verbose.format(i,self.lower_bounds[-1])
@@ -172,7 +175,7 @@ class MDA(object):
         self.lower_bounds.append(lower_bound)
         
         
-    def m_step(self):
+    def _m_step(self):
         '''
         M-step of Expectation Maximization Algorithm
         
@@ -218,9 +221,8 @@ class MDA(object):
         x[x<lo]=lo
         return x
         
-    @staticmethod
-    def target_preprocessing():
-        pass
+        
+            
         
         
 if __name__=="__main__":

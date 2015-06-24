@@ -2,7 +2,7 @@
 
 
 import numpy as np
-from scipy.sparse import CSR
+from scipy.sparse import csr_matrix
 
 class ClassificationTargetError(Exception):
     '''
@@ -23,7 +23,19 @@ class ClassificationTargetError(Exception):
 class LabelBinariser(object):
     
     '''
+    Binarize labels in a one-vs-all fashion.
     
+    Allows easily transform vector of targets for classification to ground truth 
+    matrix and easily make inverse transformation.
+    
+    Parameters:
+    ------------
+    
+    Y: numpy array of size 'n_samples x 1'
+       Target variables, vector of classes in classification problem
+    
+    k: int
+       Number of classes 
     
     '''
     
@@ -37,33 +49,48 @@ class LabelBinariser(object):
         classes         = set(Y)
         if len(classes) != k:
             raise ClassificationTargetError(k,len(classes))
-        direct_mapping  = {}
-        inverse_mapping = {}
+        self.direct_mapping  = {}
+        self.inverse_mapping = {}
         for i,el in enumerate(classes):
-            direct_mapping[el] = i
-            inverse_mapping[i] = el
+            print i,el
+            self.direct_mapping[el] = i
+            self.inverse_mapping[i] = el
             
-    def convert_vec_to_binary_matrix(self):
+            
+    def convert_vec_to_binary_matrix(self, compress = False):
         '''
         Converts vector to ground truth matrix
+        
+        Parameters:
+        ------------
+                
+        compress: bool
+                  If True will use csr_matrix to output compressed matrix
         '''
         Y = np.zeros([self.n,self.k])
-        for el,idx in self.direct_mapping:
+        for el,idx in self.direct_mapping.items():
             Y[self.Y==el,idx] = 1
+        if compress is True:
+            return csr_matrix(Y)
         return Y
             
             
-    def convert_binary_matrix_to_vec(self,B):
+    def convert_binary_matrix_to_vec(self,B, compressed = False):
+        '''
+        Converts ground truth matrix to vector of classificaion targets
+        
+        Parameters:
+        -----------
+        compressed: bool
+            If True input is csr_matrix, otherwise B is numpy array
+        '''
+        if compressed is True:
+            B = B.dot(np.eye(np.shape(B)[1]))
         Y = np.zeros(self.n, dtype = self.Y.dtype)
         for i in range(np.shape(B)[1]):
             Y[B[:,i]==1] = self.inverse_mapping[i]
         return Y
         
-if __name__=="__main__":
-    Y = np.array(["1","1","0","0","0"])
-    lb = LabelBinariser(Y)
-    Y_hat = lb.convert_vec_to_binary_matrix()
-    print Y_hat
         
         
         
