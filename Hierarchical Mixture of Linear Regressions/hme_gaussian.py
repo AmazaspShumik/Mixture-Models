@@ -24,7 +24,7 @@ class HME_Gaussian(object):
                                Level 2 - softmax gating functions
                                Level 3 - linear regression
     
-    Input:
+    Parameters:
     -------
     Y                        - numpy array of size 'n x 1', vector of dependent variables
     X                        - numpy array of size 'n x m', matrix of inputs
@@ -35,7 +35,7 @@ class HME_Gaussian(object):
     converge                 - threshold for convergence (if proportional change in lower 
                                bound is smaller then threshold then algorithm is stopped)
     max_iter                 - int, maximum number of iteration of EM algorithm
-    verbose                  - if True prints iteration number and value of lower bound at each iteration
+    verbose: boolean                  - if True prints iteration number and value of lower bound at each iteration
     
     '''
     
@@ -210,6 +210,7 @@ class HME_Gaussian(object):
             gate_second_level.fit_matrix_output(np.array(H_second),self.X, weights)
             self.beta[i]      = gate_second_level.theta
 
+    #--------------------------------- Predictions ----------------------------------------------#
 
     def predict_mean(self,X):
         ''' Finds mean prediction of experts '''
@@ -220,6 +221,10 @@ class HME_Gaussian(object):
             pred_gate_two = sr.softmax(self.beta[i],X)
             prediction   += pred_gate_one[:,i]*np.sum( pred_expert * pred_gate_two ,axis = 1)
         return prediction
+        
+        
+    def posterior_dist(self,X,resolution = 0.01):
+        pass
     
     
     #------------------------ Helper Methods ---------------------------------#
@@ -238,5 +243,3 @@ class HME_Gaussian(object):
             return x
 
 
-    
-    

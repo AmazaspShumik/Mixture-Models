@@ -28,8 +28,8 @@ def softmax(Theta,X):
     input belongs to class 'i'.
     
 
-    Input:
-    ------
+    Parameters:
+    -----------
     Theta      - numpy array of size 'm x k' (or of size 'm*k x 1'), where each column 
                  represents vector of coefficients corresponding to some class
     X          - numpy array of size 'n x m', vector of input
@@ -58,8 +58,8 @@ def negative_log_multinomial_gradient(Theta, Y, X, k, vec_to_mat = False):
     '''
     Calculates gradient for multinomial model.
     
-    Input:
-    ------
+    Parameters:
+    -----------
     Theta   - numpy array of size 'm x k', where each column represents vector of coefficients
     Y       - scipy.sparse.csr_matrix (sparse matrix) of size 'n x k'
     X       - numpy array of size 'n x m', vector of input
@@ -85,8 +85,8 @@ def negative_log_multinomial_likelihood(Theta, Y, X,k, vec_to_mat = False):
     '''
     Calculates negative log likelihood.
     
-    Input:
-    ------
+    Parameters:
+    -----------
     Theta   - numpy array of size 'm x k', where each column represents vector of coefficients
     Y       - scipy.sparse.csr_matrix (sparse matrix) of size 'n x k'
     X       - numpy array of size 'n x m', vector of input
@@ -126,14 +126,14 @@ def cost_grad(Theta,Y,X,k,weights):
     tuple(int, np.array) - tuple, where first element is value of cost function,
                            second element is numpy array, representing gradient
     '''
-    n,m     = np.shape(X)
-    Theta   = np.reshape(Theta,(m,k))                                         # Theta transformed to matrix
-    P       = softmax(Theta,X)                                                # Matrix of probabilities
-    unweighted = np.sum(Y.dot(np.eye(k))*np.log(P), axis = 1)
-    cost    = -1.0/n*np.dot(weights,unweighted)                       # E y_i*w_i*log(p_i) (weighted cost)
-    resid   = (Y.dot(np.eye(k))-P)
-    grad    = -1.0/n*np.dot(np.dot(X.T,np.diagflat(weights)),resid)
-    grad    = np.array(grad)                                                   # gradient matrix of size m x k (make Fortran contigious)
+    n,m         =  np.shape(X)
+    Theta       =  np.reshape(Theta,(m,k))                                         # Theta transformed to matrix
+    P           =  softmax(Theta,X)                                                # Matrix of probabilities
+    unweighted  =  np.sum(Y.dot(np.eye(k))*np.log(P), axis = 1)
+    cost        =  -1.0/n*np.dot(weights,unweighted)                               # E y_i*w_i*log(p_i) (weighted cost)
+    resid       =  (Y.dot(np.eye(k))-P)
+    grad        =  -1.0/n*np.dot(np.dot(X.T,np.diagflat(weights)),resid)
+    grad        =  np.array(grad)                                                   # gradient matrix of size m x k (make Fortran contigious)
     return (cost, np.reshape(grad,(m*k,)))
     
 
@@ -146,8 +146,8 @@ def target_preprocessing(Y,k):
     Transforms vector of class labels into Compressed Sparse Row Matrix.
     (Ground truth matrix)
     
-    Input:
-    ------
+    Parameters:
+    -----------
           Y - numpy array of size 'n x 1'
           k - number of classes
     
@@ -196,6 +196,7 @@ class SoftmaxRegression(object):
         Y_gt                       = target_preprocessing(Y,K) 
         self._fit(Y_gt,X,K,weights)
         
+        
     def fit_matrix_output(self,Y,X,weights):
         n,k   =  np.shape(Y)
         self._fit(Y,X,k,weights)
@@ -216,8 +217,8 @@ class SoftmaxRegression(object):
         '''
         Calculates matrix of probabilities for given data matrix
         
-        Input:
-        ------
+        Parameters:
+        -----------
         X_test    -  numpy array of size 'u x m' (where u is unknown size parameter)
         
         Output:
