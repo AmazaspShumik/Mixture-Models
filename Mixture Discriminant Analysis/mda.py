@@ -89,7 +89,7 @@ class MDA(object):
         
     def posterior_probs(self):
         ''' 
-        Calculates posterior probability of 
+        Calculates posterior probability
         '''
         posterior = np.zeros([self.n,self.k])
         
@@ -106,7 +106,7 @@ class MDA(object):
         
     def _initialise_params(self):
         '''
-        Initialises parameters
+        Initialises parameters using k-means to calculate responsibilities
         '''
         
         # initialise class priors
