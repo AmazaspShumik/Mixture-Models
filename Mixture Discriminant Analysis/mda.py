@@ -6,7 +6,7 @@ from sklearn.cluster import KMeans
 import label_binariser as lb
 
 
- #--------------------------------- Helper Methods & Classes  --------------------------------------------#
+ ############################ Helper Methods & Classes  #################################
     
     
 def bounded_variable(x,lo,hi):
@@ -18,7 +18,7 @@ def bounded_variable(x,lo,hi):
     x[x<lo]=lo
     return x
     
-    
+############################ Mixture Discriminant Analysis ################################    
 
 class MDA(object):
     '''
