@@ -56,10 +56,14 @@ class AbstractHME(object):
     error_bound_resp: float
          Accuracy parameter to prevent numerical underflow, when calculating responsibilities
     
-    converge                 - threshold for convergence (if proportional change in lower 
+    converge: float
+         Threshold for convergence (if proportional change in lower 
                                bound is smaller then threshold then algorithm is stopped)
-    max_iter                 - int, maximum number of iteration of EM algorithm
-    verbose: boolean                  - if True prints iteration number and value of lower bound at each iteration
+    max_iter: int
+         Maximum number of iteration of EM algorithm
+         
+    verbose: boolean
+         If True prints iteration number and value of lower bound at each iteration
     
     '''
     
@@ -95,11 +99,11 @@ class AbstractHME(object):
     def iterate(self):
         delta = 1
         for i in range(self.max_iter):
-            self.e_step()
+            self._e_step()
             if len(self.lower_bounds) >= 2:
                 delta = float(self.lower_bounds[-1] - self.lower_bounds[-2])/abs(self.lower_bounds[-2])
             if delta > self.convergence_threshold:
-                self.m_step()
+                self._m_step()
                 if self.verbose:
                     iteration_verbose = "iteration {0} completed, lower bound of log-likelihood is {1} "
                     print iteration_verbose.format(i,self.lower_bounds[-1])
@@ -109,7 +113,7 @@ class AbstractHME(object):
             
     #--------------------------------------------  E-step --------------------------------------------------#
 
-    def e_step(self):
+    def _e_step(self):
         '''
         
         E-step in EM algorithm for training Hierarchical Mixture of Experts.
@@ -177,7 +181,7 @@ class AbstractHME(object):
     #--------------------------------------------  M-step --------------------------------------------------#
         
 
-    def m_step(self):
+    def _m_step(self):
         '''
         M-step in EM algorithm for training Hierarchical Mixture of Experts.
         Finds parameters for gating networks and experts that maximise lower bound of 
@@ -231,8 +235,14 @@ class AbstractHME(object):
         Parameters:
         -----------
         
-        X: 
+        X: numpy array of size 'unknown x m'
+            Test data, for which estimate of target values need to be found
+            
+        Returns:
+        --------
         
+        prediction: numpy array of size 'unknown x 1'
+            Estimated target values
         '''
         pred_gate_one = sr.softmax(self.alpha,X)
         prediction    = np.zeros(self.n)
