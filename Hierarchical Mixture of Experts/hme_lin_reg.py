@@ -13,6 +13,10 @@ import WeightedLinearRegression as wlr
 
 
 class LinearRegressionHME(AbstractHME):
+    '''
+    Hierarchical Mixture of Linear Regressions
+    
+    '''
     
     def __init__(self,*args):
         super(LinearRegressionHME,self).__init__(*args)
@@ -70,10 +74,10 @@ class LinearRegressionHME(AbstractHME):
         return np.dot(X,self.gamma[i])
         
 if __name__ == "__main__":
-    X      = np.zeros([100,2])
-    X[:,0] = np.linspace(0, 2, 100)
-    X[:,1] = np.ones(100)
-    Y = np.sin(X[:,0])
+    X      = np.zeros([1000,2])
+    X[:,0] = np.linspace(0, 10, 1000)
+    X[:,1] = np.ones(1000)
+    Y = np.sin(X[:,0])*4 + np.random.normal(0,1,1000)
     hme = LinearRegressionHME(Y,X,10,[8,8,8,8,8,8,8,8,8,8])
     hme.iterate()
     
