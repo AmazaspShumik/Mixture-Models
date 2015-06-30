@@ -3,6 +3,7 @@
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
 import label_binariser as lb
+import matplotlib.pyplot as plt
 
 #----------------------------- Helper Methods ---------------------------------------#
 
@@ -10,7 +11,7 @@ def logistic_sigmoid(M):
     '''
     Sigmoid function
     '''
-    1.0/( 1 + np.exp(-1*M ))
+    return 1.0/( 1 + np.exp(-1*M ))
     
     
 def logistic_cost_grad(theta,Y,X,weights):
@@ -41,11 +42,11 @@ def logistic_cost_grad(theta,Y,X,weights):
     
     '''
     n,m       =  np.shape(X)
-    p_one     =  logistic_sigmoid(np.dot(X,theta))
-    p_zero    =  np.ones(n) - p_one
-    cost      =  np.dot( weights *Y , np.log(p_one) ) - np.dot( weights * (np.ones(n) - Y) , p_zero )
-    grad      =  np.dot( X , p_zero - Y)
-    cost_grad =  [cost, grad]
+    H         =  logistic_sigmoid(np.dot(X,theta))
+    cost_vec  =  Y*np.log(H) + (1 - Y)*np.log(1 - H)
+    cost      =  -1.0*np.sum(weights*cost_vec)
+    grad      =  np.dot( np.dot(X.T,np.diagflat(weights)) , H - Y)
+    cost_grad =  (cost, grad.T)
     return cost_grad
     
 def logistic_pdf(theta,Y,X):
@@ -72,37 +73,71 @@ def logistic_pdf(theta,Y,X):
     '''
     n            = np.shape(Y)[0]
     probs        = logistic_sigmoid(np.dot(X,theta))
-    probs[Y==1]  = np.ones(n) - probs
+    probs[Y==0]  = np.ones(n)[Y==0] - probs[Y==0]
     return probs
     
-# ------------------------------- Logistic Regression Class --------------------------------------#
+# ------------------------------- Logistic Regression  -----------------------------------------#
 
 class LogisticRegression(object):
     
     
-    def __init__(self, p_tol, max_iter):
+    def __init__(self, p_tol = 1e-5, max_iter = 20):
         self.p_tol   =  p_tol
         self.maxiter =  max_iter
         
     def _preprocessing_targets(self,Y):
+        '''
+        
+        '''
         self.binarisator = lb.LabelBinariser(Y,2)
+        return self.binarisator.logistic_reg_direct_mapping()
         
         
-    def fit(self,Y_raw,X,weights):
+    def fit(self,Y_raw,X,weights, preprocess_input = True):
+        if preprocess_input is True:
+            Y        = self._preprocessing_targets(Y_raw)
+        else:
+            Y        = Y_raw    
         n,m          = np.shape(X)
         fitter       = lambda theta: logistic_cost_grad(theta,Y,X,weights)
-        theta_init   = 0.1*np.random.random(m)
+        theta_init   = np.zeros(m)
         theta,J,D    = fmin_l_bfgs_b(fitter, theta_init, fprime = None, pgtol = self.p_tol, maxiter = self.maxiter)
         self.theta   = theta
         
-
+    
+    def predict_probs(self,X, theta = None):
+        if theta is None:
+            theta = self.theta
+        probs        = logistic_sigmoid(np.dot(X,theta))
+        return probs
         
-    def predict_probs(self):
-        pass
-    
-    def predict(self):
-        pass
-    
+    def predict(self,X, theta = None, postprocess_output = True):
+        pr           = self.predict_probs(X,theta)
+        pr[pr>0.5]   = 1
+        pr[pr<0.5]   = 0
+        if postprocess_output is True:
+            return self.binarisator.logistic_reg_inverse_mapping(pr)
+        return pr
+        
+        
+
 if __name__ == "__main__":
-    pass
+    X = np.ones([50,3])
+    X[:,1] = np.random.normal(0,1,50)
+    X[:,2] = np.random.normal(0,1,50)
+    X[25:50,1:3] = X[25:50,1:3] + 10
+    Y = np.array(["y" for i in range(50)])
+    Y[25:50] = "n"
+    lr = LogisticRegression()
+    lr.fit(Y,X,np.ones(50))
+    Y_hat = lr.predict_probs(X)
+    Y_est = lr.predict(X)
+    # plot decision boundary
+    x1 = np.linspace(-3,10,100)
+    x2 = -1*(lr.theta[0]+x1*lr.theta[1])/lr.theta[2]
+    plt.plot(x2,x1,"g+")
+    plt.plot(X[Y=="n",1],X[Y=="n",2],"b+")
+    plt.plot(X[Y=="y",1],X[Y=="y",2],"c+")
+    plt.show()
+    
         
