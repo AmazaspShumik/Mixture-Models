@@ -24,7 +24,7 @@ from scipy.sparse import csr_matrix
 def softmax(Theta,X):
     '''
     Calculates value of softmax function. Output can be interpreted as matrix
-    of probabilities, where is each entry of columns i is probability that corresponding 
+    of probabilities, where  each entry of column i is probability that corresponding 
     input belongs to class 'i'.
     
 
@@ -187,6 +187,20 @@ class SoftmaxRegression(object):
         self.tolerance              = tolerance
         self.max_iter               = max_iter
         self.theta                  = 0
+        
+    def init_weights(self,m,k):
+        '''
+        
+        Parameters:
+        -----------
+        m: int
+           Dimensionality of data        
+        
+        k: int
+           Number of classes in classification problem
+        '''
+        self.theta = np.zeros([m,k], dtype = np.float)
+        
     
     def fit_vector_output(self,Y,X,K,weights):
         '''
@@ -208,7 +222,7 @@ class SoftmaxRegression(object):
         '''
         fitter          = lambda theta: cost_grad(theta,Y_gt,X,k,weights)
         n,m             = np.shape(X)
-        theta_initial   = np.zeros(m*k, dtype = np.float)
+        theta_initial   = 0.1*np.random.random(m*k)
         theta,J,D       = fmin_l_bfgs_b(fitter,theta_initial,fprime = None,pgtol = self.tolerance,maxiter = self.max_iter)
         self.theta      = np.reshape(theta,(m,k))
         

@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-# -*- coding: utf-8 -*-
 
 
 import numpy as np
@@ -55,7 +54,6 @@ class LabelBinariser(object):
         self.direct_mapping  = {}
         self.inverse_mapping = {}
         for i,el in enumerate(classes):
-            print i,el
             self.direct_mapping[el] = i
             self.inverse_mapping[i] = el
             
@@ -84,6 +82,43 @@ class LabelBinariser(object):
         if compress is True:
             return csr_matrix(Y)
         return Y
+        
+    def logistic_reg_direct_mapping(self):
+        '''
+        Converts vector with two possible to vector of zeros and ones.
+
+        Returns:
+        --------
+        
+        Y: numpy array of size 'n x 1'
+               Vector of zeros and ones. (Mainly inteneded for logistic regression) 
+                
+        '''
+        Y      = np.zeros(self.n)
+        el_one = self.inverse_mapping[1]
+        Y[self.Y==el_one] = 1
+        return Y
+    
+    def logistic_reg_inverse_mapping(self,Y):
+        '''
+        Converts vector of zeros and ones to original format.
+        
+        Parameters:
+        -----------
+        Y:  numpy array of size [n_samples,1]
+            Vector of zeros and ones (for example output of logistic regression)
+            
+        Returns:
+        --------
+        
+        Y: numpy array of size 'n x 1'
+            Target estimates in original format.
+            
+        '''
+        Y_out = np.zeros(self.n, dtype = self.Y.dtype)
+        Y_out[Y==1] = self.inverse_mapping[1]
+        Y_out[Y==0] = self.inverse_mapping[0]
+        return Y_out
             
             
     def convert_binary_matrix_to_vec(self,B, compressed = False):
@@ -130,5 +165,12 @@ class LabelBinariser(object):
         Y_max = np.argmax(Y, axis = 1)
         Y     = np.array([self.inverse_mapping[e] for e in Y_max])
         return Y
+        
+if __name__=="__main__":
+    Y = np.array(["y","y","n","n","y"])
+    lb = LabelBinariser(Y,2)
+    Y_lr  = lb.logistic_reg_direct_mapping()
+    Y_hat = lb.logistic_reg_inverse_mapping(Y_lr)
+    
         
         

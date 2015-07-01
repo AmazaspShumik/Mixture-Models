@@ -40,13 +40,14 @@ def norm_pdf(theta,y,x,sigma_2):
     
     Output:
     -------
-    
-             - int
+    prob: numpy array of size 'n x 1'
+          Probability of observing y given theta and X
     
     '''
     normaliser = 1.0/np.sqrt(2*np.pi*sigma_2)
     u          = y - np.dot(x,theta)
-    return normaliser* np.exp( -0.5 * u*u / sigma_2 )
+    prob       = normaliser* np.exp( -0.5 * u*u / sigma_2 )
+    return prob
     
     
 
@@ -66,31 +67,27 @@ class WeightedLinearRegression(object):
     
     '''
     
-    def __init__(self,X,Y,weights):
+    def __init__(self):
         self.theta        = 0             # coefficients excluding bias term
         self.mse          = 0             # mean squared error
         self.var          = 0             # fitted variance
-        self.Y            = Y
-        self.X            = X
-        self.weights      = weights
 
-    def fit(self):
+    def init_weights(self,m):
+        self.theta = np.zeros(m)
+        self.var   = 1 
+
+    def fit(self,X,Y,weights):
         ''' Fits weighted regression '''
-        n,m         =  np.shape(self.X)
-        W           =  np.diagflat(self.weights)
-        part_one    =  np.dot(np.dot(self.X.T,W),self.X)
-        part_two    =  np.dot(np.dot(self.X.T,W),self.Y)
+        n,m         =  np.shape(X)
+        W           =  np.diagflat(weights)
+        part_one    =  np.dot(np.dot(X.T,W),X)
+        part_two    =  np.dot(np.dot(X.T,W),Y)
         self.theta  =  cholesky_solver_least_squares(part_one, part_two)
-        vec_1       =  (self.Y - np.dot(self.X,self.theta))
+        vec_1       =  (Y - np.dot(X,self.theta))
         self.var    =  np.dot(vec_1,np.dot(vec_1,W))/np.sum(W)
         
+    def predict(self,X):
+        return np.dot(X,self.theta)
         
-
-    def predict(self,X_test):
-        '''
-        Predicts target values for X_test
-        '''
-        fitted = np.dot(X_test,)
-        return fitted
 
 

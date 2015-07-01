@@ -59,8 +59,8 @@ class LinearRegressionHME(AbstractHME):
                 for n in range(self.n):
                     weights.append(self.responsibilities[n][i][j])
                 W      = np.array(weights) 
-                expert = wlr.WeightedLinearRegression(self.X,self.Y,W)
-                expert.fit()
+                expert = wlr.WeightedLinearRegression()
+                expert.fit(self.X,self.Y,W)
                 self.sigma_2[i][j]  = expert.var
                 self.gamma[i][:,j]  = expert.theta
     
@@ -70,6 +70,15 @@ class LinearRegressionHME(AbstractHME):
     def _predict_expert(self,X,i):
         '''
         Point prediction by expert model
+        
+        Paramaeters:
+        ------------
+        
+        X: numpy array of size 'n x m'
+            Explanatory variables
+            
+        i: int 
+            
         '''
         return np.dot(X,self.gamma[i])
         
