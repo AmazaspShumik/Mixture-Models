@@ -4,6 +4,7 @@ import numpy as np
 import abc
 import WeightedLinearRegression as wlr
 import SoftmaxRegression as sr
+import 
 
 
 
@@ -154,10 +155,29 @@ class GaterNode(Node):
         
         
       
-#----------------------------------------- Expert Nodes ----------------------------------------------#
+############################################## Expert Nodes #####################################################
       
+      
+class ExpertNodeAbstract(Node):
+    
+    def m_step_update(self,X,Y):
+        ''' Updates parameters '''
+        # parameters are updated and saved in expert
+        self.expert.fit(X,Y,self.weights)
         
-class ExpertNodeLinReg(Node):
+    def down_tree_pass(self,X,Y, nodes):
+        parent, birth_order = self.get_parent_and_birth_order(nodes)
+        self.weights        = parent.weights * parent.responsibilities[:,birth_order]/parent.normaliser
+        self.m_step_update(X,Y)
+        
+    def propagate_mean_prediction(self,X,nodes):
+        return self.expert.predict(X)
+        
+        
+#-------------------------------------- Linear Regression Expert Node --------------------------------------------
+
+        
+class ExpertNodeLinReg(ExpertNodeAbstract):
     
     def __init__(self,n,node_position,k,m):
         super(ExpertNodeLinReg,self).__init__(n,node_position,k)
@@ -165,11 +185,6 @@ class ExpertNodeLinReg(Node):
         self.expert.init_weights(m)
         self.node_type = "expert"
         
-    def m_step_update(self,X,Y):
-        ''' Updates parameters '''
-        # parameters are updated and saved in expert
-        self.expert.fit(X,Y,self.weights)
-    
     def prior(self,X,Y):
         ''' Calculates probability of observing'''
         self.weights = wlr.norm_pdf(self.expert.theta,Y,X,self.expert.var)
@@ -178,18 +193,13 @@ class ExpertNodeLinReg(Node):
     def up_tree_pass(self,X,Y):
         self.prior(X,Y)
         
-    def down_tree_pass(self,X,Y, nodes):
-        parent, birth_order = self.get_parent_and_birth_order(nodes)
-        self.weights        = parent.weights * parent.responsibilities[:,birth_order]/parent.normaliser
-        self.m_step_update(X,Y)
-        
-    def propagate_mean_prediction(self,X,nodes):
-        
-        return self.expert.predict(X)
+
+#-------------------------------------- Logistic Regression Expert Node --------------------------------------------
         
     
 class ExpertNodeLogisticReg(object):
-    pass
+    
+    def __init__
         
         
         
