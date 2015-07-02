@@ -8,8 +8,7 @@ import logistic_reg as lr
 
 
 
-
-#-------------------------------  Base Node Class --------------------------------
+#----------------------------------------- Abstract Base Node Class ----------------------------------------------#
 
 class Node(object):
     __metaclass__ = abc.ABCMeta
@@ -51,6 +50,7 @@ class Node(object):
         self.m               = m
         self.max_iter        = max_iter
         self.conv_threshold  = conv_threshold
+        self.n               = n 
         
         
     @abc.abstractmethod
@@ -71,6 +71,7 @@ class Node(object):
     @abc.abstractmethod
     def _prior(self):
         raise NotImplementedError
+        
         
     @abc.abstractmethod
     def propagate_mean_prediction(self):
@@ -135,7 +136,8 @@ class Node(object):
         return True
         
         
-#-------------------------------- Inner Node --------------------------------------#
+############################################### Gate Node ######################################################
+
         
         
 class GaterNode(Node):
@@ -155,8 +157,7 @@ class GaterNode(Node):
         
         
     def _m_step_update(self,H,X):
-        ''' Updates parameters of softmax regression'''
-        # parameters are updated and saved in gater
+        ''' Updates parameters running weighted softmax regression '''
         self.gater.fit_matrix_output(H,X,self.weights) 
         
     
@@ -166,8 +167,22 @@ class GaterNode(Node):
         
         
     def up_tree_pass(self,X,nodes):
-        self.prior(X)
-        #print self.responsibilities
+        '''
+        Calculates prior probability of latent variables and combines 
+        prior probability of children to calculate posterior for the 
+        latent variable corresponding to node
+        
+        Parameters:
+        -----------
+        
+        X: numpy array of size 'n x m'
+            Explanatory variables
+            
+        nodes: list of size equal number of nodes in HME
+             List with all nodes of HME
+             
+        '''
+        self._prior(X)
         children = self.get_childrens(nodes)
         # all children should be of the same type
         if len(set([e.node_type for e in children])) != 1:
@@ -176,24 +191,53 @@ class GaterNode(Node):
             if child_node.node_type == "expert":
                self.responsibilities[:,i] *= child_node.weights
             elif child_node.node_type == "gate":
-               #print "Gater"
                self.responsibilities[:,i] *= np.sum(child_node.responsibilities, axis = 1)
-               #print self.responsibilities
             else:
                 raise TypeError("Unidentified node type")
-        #print self.responsibilities
         self.normaliser = np.sum(self.responsibilities, axis = 1)
         
         
     def down_tree_pass(self,X,nodes):
+        '''
+        Calculates responsibilities and performs weighted maximum likelihood estimation
+        
+        Parameters:
+        -----------
+        
+        X: numpy array of size 'n x m'
+            Explanatory variables
+            
+        nodes: list of size equal number of nodes in HME
+             List with all nodes of HME
+             
+        '''
         if self.has_parent() is True:
             parent,birth_order = self.get_parent_and_birth_order(nodes)
             self.weights       = parent.weights*parent.responsibilities[:,birth_order]/parent.normaliser
         H = self.responsibilities / np.outer(self.normaliser, np.ones(self.k))
-        self.m_step_update(H,X)
+        self._m_step_update(H,X)
         
         
     def propagate_mean_prediction(self,X,nodes):
+        '''
+        Returns weighted mean of predictions in experts which are in subtree
+        
+        Parameters:
+        -----------
+        
+        X: numpy array of size 'unkonwn x m'
+            Explanatory variables for test set
+            
+        nodes: list of size equal number of nodes in HME
+             List with all nodes of HME
+             
+        Returns:
+        --------
+        
+        mean_prediction: numpy array of size 'unknown x m'
+             Weighted prediction
+
+        '''
         self.prior(X)
         children        = self.get_childrens(nodes)
         n,m             = np.shape(X)
@@ -208,23 +252,56 @@ class GaterNode(Node):
       
       
 class ExpertNodeAbstract(Node):
+    '''
+    Abstract Base Class for experts (linear, poisson, logistic etc. regressions) 
+    '''
+    
     
     def _m_step_update(self,X,Y):
         ''' Updates parameters of linear regression (coefficient and estimates of variance) '''
         # parameters are updated and saved in expert
         self.expert.fit(X,Y,self.weights)
         
+        
     def down_tree_pass(self,X,Y, nodes):
         '''
+        Calculates responsibilities and performs weighted maximum likelihood estimation,
         
+        Parameters:
+        -----------
         
+        X: numpy array of size 'n x m'
+            Explanatory variables
+            
+        Y: numpy array of size 'n x m'
+            Target variables that should be approximated
+            
+        nodes: list of size equal number of nodes in HME
+             List with all nodes of HME
+             
         '''
         parent, birth_order = self.get_parent_and_birth_order(nodes)
         self.weights        = parent.weights * parent.responsibilities[:,birth_order]/parent.normaliser
         self.m_step_update(X,Y)
         
+        
     def propagate_mean_prediction(self,X,nodes):
         '''
+        Returns prediction of expert for test input X
+        
+        Parameters:
+        -----------
+        
+        X: numpy array of size 'unkonwn x m'
+            Explanatory variables for test set
+            
+        nodes: list of size equal number of nodes in HME
+             List with all nodes of HME
+             
+        Returns:
+        --------
+        : numpy array of size 'unknown x m'
+             Weighted prediction
         
         '''
         return self.expert.predict(X)
@@ -234,6 +311,10 @@ class ExpertNodeAbstract(Node):
 
         
 class ExpertNodeLinReg(ExpertNodeAbstract):
+    '''
+    Expert node in Hierarchical Mixture of Experts, with expert being 
+    standard weighted linear regression.
+    '''
     
     def __init__(self,*args,**kwargs):
         ''' Initialise linear regression expert node '''
@@ -248,7 +329,21 @@ class ExpertNodeLinReg(ExpertNodeAbstract):
         self.weights = bounded_variable(self.weights,self.underflow_tol, 1-self.underflow_tol)
         
     def up_tree_pass(self,X,Y):
-        self.prior(X,Y)
+        '''
+        Calculates prior probability of latent variables corresponding to 
+        expert at node.
+        
+        Parameters:
+        -----------
+        
+        X: numpy array of size 'n x m'
+            Explanatory variables
+            
+        Y: numpy array of size 'n x 1'
+             Target variable that should be approximated
+             
+        '''
+        self._prior(X,Y)
         
 
 #-------------------------------------- Logistic Regression Expert Node --------------------------------------------
@@ -257,7 +352,7 @@ class ExpertNodeLinReg(ExpertNodeAbstract):
 class ExpertNodeLogisticReg(ExpertNodeAbstract):
     
     def __init__(self,n,node_position,k,m):
-        pass
+        raise NotImplementedError("Wait, I am working on it")
         
         
         
@@ -265,14 +360,35 @@ class ExpertNodeLogisticReg(ExpertNodeAbstract):
         
 def bounded_variable(x,lo,hi):
     '''
-    Returns 'x' if 'x' is between 'lo' and 'hi', 'hi' if x is larger than 'hi'
-    and 'lo' if x is lower than 'lo'
+    Bounds variable from below and above, prevents underflow and overflow
+    
+    Parameters:
+    -----------
+    
+    x: numpy array of size 'n x 1'
+       input vector
+       
+    hi: float
+       Upper bound
+       
+    lo: float
+       Lower bound
+       
+    Returns:
+    --------
+    
+    
+       
     '''
     x[ x > hi] = hi
     x[ x < lo] = lo
     return x
     
+    
 class NodeNotFoundError(Exception):
+    '''
+    Error raised in case node is not found
+    '''
     
     def __init__(self,node_position, node_type, message):
         self.np = node_position
