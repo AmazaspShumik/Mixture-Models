@@ -49,6 +49,7 @@ def logistic_cost_grad(theta,Y,X,weights):
     cost_grad =  (cost, grad.T)
     return cost_grad
     
+    
 def logistic_pdf(theta,Y,X):
     '''
     Calculates probability of observing Y given theta and X
@@ -79,7 +80,19 @@ def logistic_pdf(theta,Y,X):
 # ------------------------------- Logistic Regression  -----------------------------------------#
 
 class LogisticRegression(object):
+    '''
+    Logistic Regression, linear classification model
     
+    Parameters:
+    -----------
+    
+    p_tol: float
+           Convergence threshold for Iterative Reweighted Least Squares
+           
+    max_iter: int
+            Maximum number of iterations of IRLS
+    
+    '''
     
     def __init__(self, p_tol = 1e-5, max_iter = 20):
         self.p_tol   =  p_tol
@@ -87,18 +100,41 @@ class LogisticRegression(object):
         
     def _preprocessing_targets(self,Y):
         '''
-        
+        Preprocesses target vaector into 0-1 encoded vector
         '''
         self.binarisator = lb.LabelBinariser(Y,2)
         return self.binarisator.logistic_reg_direct_mapping()
         
         
-    def fit(self,Y_raw,X,weights, preprocess_input = True):
+    def fit(self,Y_raw,X,weights = None, preprocess_input = True):
+        '''
+        Fits model, finds best parameters.
+        
+        Parameters:
+        -----------
+        
+        Y_raw: numpy array of size 'n x 1'
+              Vector of targets, that shouyld be approxiamted
+              
+        X: numpy array of size 'n x m'
+              Matrix of inputs, training set
+              
+        weights: numpy array of size 'n x 1'
+              Weighting of observations
+              
+        preprocess_input: bool
+              True if target variable is not vector of zeros and ones
+        
+        '''
+        # preprocess target variables if needed
         if preprocess_input is True:
             Y        = self._preprocessing_targets(Y_raw)
         else:
-            Y        = Y_raw    
+            Y        = Y_raw
         n,m          = np.shape(X)
+        # default weighting
+        if weights is None:
+            weights = np.ones(n)
         fitter       = lambda theta: logistic_cost_grad(theta,Y,X,weights)
         theta_init   = np.zeros(m)
         theta,J,D    = fmin_l_bfgs_b(fitter, theta_init, fprime = None, pgtol = self.p_tol, maxiter = self.maxiter)
@@ -106,19 +142,59 @@ class LogisticRegression(object):
         
     
     def predict_probs(self,X, theta = None):
+        '''
+        Predicts probability of belonging to one of two classes for test set data
+        
+        Parameters:
+        -----------
+        
+        X: numpy array of size 'unknown x m'
+              Matrix of inputs, test set
+              
+        theta: numpy array of size 'm x 1'
+              Vector of parameters
+              
+        Returns:
+        --------
+        
+        probs: numpy array of size 'n x 1'
+              Vector of probabilities
+        '''
+        # default parameters are for fitted model
         if theta is None:
             theta = self.theta
         probs        = logistic_sigmoid(np.dot(X,theta))
         return probs
         
+        
     def predict(self,X, theta = None, postprocess_output = True):
+        '''
+        Predicts target class to which observation belong
+        
+        Parameters:
+        -----------
+        
+        X: numpy array of size 'unknown x m'
+              Matrix of inputs, test set
+              
+        theta: numpy array of size 'm x 1'
+              Vector of parameters
+              
+        postprocess_output: bool
+             If True transforms vector of zeros and one to original format class
+              
+        Returns:
+        --------
+        
+        pr: numpy array of size 'n x 1'
+              Vector of target classes (belongs to one )
+        '''
         pr           = self.predict_probs(X,theta)
         pr[pr>0.5]   = 1
         pr[pr<0.5]   = 0
         if postprocess_output is True:
             return self.binarisator.logistic_reg_inverse_mapping(pr)
         return pr
-        
         
 
 if __name__ == "__main__":
