@@ -94,9 +94,13 @@ class LogisticRegression(object):
     
     '''
     
-    def __init__(self, p_tol = 1e-5, max_iter = 20):
+    def __init__(self, p_tol = 1e-5, max_iter = 40):
         self.p_tol   =  p_tol
         self.maxiter =  max_iter
+        
+    def init_params(self,m):
+        self.theta = np.random.normal(0,1,m)
+        
         
     def _preprocessing_targets(self,Y):
         '''
