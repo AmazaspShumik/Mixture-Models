@@ -5,46 +5,112 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class HME(object):
+    '''
+    Implementation of Hierarchical Mixture of Experts, supports only balanced tree 
+    of arbitrary depth and arbitrary branching factor.
     
-    def __init__(self,Y,X,k = 3, levels = 4):
-        self.nodes    = []
-        n,m           = np.shape(X)
-        self.Y        = Y
-        self.X        = X
-        self.create_hme_topology(levels,n,m,k)
+    Parameters:
+    -----------
+    
+    Y: numpy array of size 'n x 1'
+       Vector of dependent variables
+       
+    X: numpy array of size 'n x m'
+       Matrix of inputs, training set
+       
+    expert_type: str
+       Type of the expert to be used, either "logit" or "gaussian"
+       
+    k: int
+       Branching parameter
+       
+    levels: int
+       Number of levels in tree
+       
+    max_iter: int
+       Maximum number of iterations of EM algorithm
+    
+    conv_thresh: float
+       Convergence threshold, if change in lower bound of likelihood is smaller
+       than threshold then EM algorithm terminates
+       
+    verbose: str
+       If True prints likelihood and iteration information
+       
+    '''
+    
+    def __init__(self,Y,X,expert_type,branching = 3, levels = 4, max_iter    = 60,
+                                                                 conv_thresh = 0.005,
+                                                                 verbose     = False):
+        self.nodes        = []
+        n,m               = np.shape(X)
+        self.Y            = Y
+        self.X            = X
+        self.expert_type  = expert_type
+        self.max_iter     = max_iter
+        self._create_hme_topology(levels,n,m,branching)
+        # lower bound of log likelihood, saves values of lower bounds for each
+        # iteration
+        self.log_like_low = []
+        self.conv_thresh  = conv_thresh
+        self.verbose      = verbose
         
-    def create_hme_topology(self,levels,n,m,k):
+        
+    def _create_hme_topology(self,levels,n,m,k):
+        ''' 
+        Creates HME tree with given depth and branching parameter
+        
+        Parameters:
+        -----------
+        
+        levels: int
+           Number of levels in tree  
+           
+        n: int 
+           Number of observations
+           
+        m: int 
+           Dimensionality of data
+        
+        k: int
+           Branching parameter
+
+        '''
         node_counter = 0
         for level in range(levels):
-            for node_pos in range(k**levels):
+            for node_pos in range(k**level):
                 if level < levels-1 :
-                    self.nodes.append(nh.GaterNode(n,node_counter,m,k))
+                    self.nodes.append(nh.GaterNode(n,node_counter,k,m))
                 elif level == levels-1:
-                    self.nodes.append(nh.ExpertNodeLinReg(n,node_counter,m,k))
-                    
-        
-    def operate(self):
-        ''' Test children parent functions'''
-        for node in self.nodes[0:4]:
-            print "position "+str(node.node_position)+" children positions "+','.join([str(e.node_position) for e in node.get_childrens(self.nodes)]) 
-        
-        for node in self.nodes[1:]:
-            print "position "+str(node.node_position)+" parent position and order of birth " + str(node.get_parent_and_birth_order(self.nodes)[0].node_position) + " "+str(node.get_parent_and_birth_order(self.nodes)[1])
-        
-        
-    def _up_tree(self):
-        ''' Tests up tree algorithm'''
+                    if self.expert_type   == "gaussian":
+                        self.nodes.append(nh.ExpertNodeLinReg(n,node_counter,k,m))
+                    elif self.expert_type == "logit":
+                        self.nodes.append(nh.ExpertNodeLogisticReg(n,node_counter,k,m))
+                node_counter+=1
+                
+                
+    def _up_tree_pass(self):
+        ''' 
+        Performs up tree pass, calculates prior probabilities of latent variables
+        and lower bound of log-likelihood
+        '''
+        likelihood = 0
         for i in range(len(self.nodes)):
             position = len(self.nodes) - i - 1
-            #print position
             node = self.nodes[position]
             if node.node_type == "expert":
                 node.up_tree_pass(self.X,self.Y)
             elif node.node_type == "gate":
                 node.up_tree_pass(self.X, self.nodes)
+            likelihood += node.log_likelihood_lb
+        self.log_like_low.append(likelihood)
                 
                 
-    def _down_tree(self):
+    def _down_tree_pass(self):
+        ''' 
+        Performs down tree pass, calculates posterior probabilities of 
+        latent variables and maximises lower bound of likelihood by updating parameters
+        '''
         for node in self.nodes:
             if node.node_type == "expert":
                 node.down_tree_pass(self.X,self.Y,self.nodes)
@@ -52,10 +118,24 @@ class HME(object):
                 node.down_tree_pass(self.X, self.nodes)
             
             
-    def iterate(self):
-        for i in range(80):
-            self._up_tree()
-            self._down_tree()
+    def fit(self):
+        '''
+        Performs iterations of EM algorithm until convergence (or limit of iterations)
+        '''
+        for i in range(self.max_iter):
+            self._up_tree_pass()
+            if self.verbose is True:
+                out = "iteration {0} completed, lower bound of log-likelihood is {1} "
+                print out.format(i,self.log_like_low[-1])
+            self._down_tree_pass()
+            if len(self.log_like_low) >= 10:
+                last = self.log_like_low[-1]
+                prev = self.log_like_low[-2]
+                if (last - prev)/abs(prev) < self.conv_thresh:
+                    if self.verbose is True:
+                       print "Algorithm converged"
+                    break
+            
             
     def predict_mean(self,X):
         return self.nodes[0].propagate_mean_prediction(X,self.nodes)
@@ -75,8 +155,9 @@ if __name__=="__main__":
     X[:,0] = np.linspace(0, 10, 1000)
     X[:,1] = np.ones(1000)
     Y = np.sin(X[:,0])*4 + np.random.normal(0,1,1000)
-    hme = HME(Y, X)
-    hme.iterate()
+    hme = HME(Y, X,"gaussian", verbose = True)
+    #hme.operate()
+    hme.fit()
     Y_hat = hme.predict_mean(X)
     plt.plot(Y,"b+")
     plt.plot(Y_hat,"r-")
