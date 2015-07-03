@@ -53,7 +53,7 @@ class LabelBinariser(object):
             raise ClassificationTargetError(k,len(classes))
         self.direct_mapping  = {}
         self.inverse_mapping = {}
-        for i,el in enumerate(classes):
+        for i,el in enumerate(sorted(list(classes))):
             self.direct_mapping[el] = i
             self.inverse_mapping[i] = el
             
@@ -170,7 +170,9 @@ if __name__=="__main__":
     Y = np.array(["y","y","n","n","y"])
     lb = LabelBinariser(Y,2)
     Y_lr  = lb.logistic_reg_direct_mapping()
+    print Y_lr
     Y_hat = lb.logistic_reg_inverse_mapping(Y_lr)
+    print Y_hat
     
         
         
