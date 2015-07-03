@@ -2,9 +2,10 @@
 
 import numpy as np
 import abc
-import WeightedLinearRegression as wlr
-import SoftmaxRegression as sr
+import weighted_lin_reg as wlr
+import softmax_reg as sr
 import logistic_reg as lr
+
 
 
 
@@ -42,15 +43,17 @@ class Node(object):
         
     '''
     
-    def __init__(self,n,node_position,k,m,underflow_tol = 1e-2,max_iter = 100, conv_threshold = 1e-5):
-        self.weights         = np.ones(n)
-        self.node_position   = node_position
-        self.k               = k
-        self.underflow_tol   = underflow_tol
-        self.m               = m
-        self.max_iter        = max_iter
-        self.conv_threshold  = conv_threshold
-        self.n               = n 
+    def __init__(self,n,node_position,k,m,underflow_tol = 1e-10,max_iter = 50, conv_threshold = 1e-5):
+        self.weights           = np.ones(n)
+        self.node_position     = node_position
+        self.k                 = k
+        self.underflow_tol     = underflow_tol
+        self.m                 = m
+        self.max_iter          = max_iter
+        self.conv_threshold    = conv_threshold
+        self.n                 = n
+        # lower bound of log-likelihood
+        self.log_likelihood_lb = 0
         
         
     @abc.abstractmethod
@@ -151,8 +154,9 @@ class GaterNode(Node):
         ''' Initialises gate node '''
         super(GaterNode,self).__init__(*args,**kwargs)
         self.gater = sr.SoftmaxRegression(self.conv_threshold, self.max_iter)
-        self.gater.init_weights(self.m,self.k)
-        self.responsibilities = np.zeros([self.n,self.k])
+        self.gater.init_params(self.m,self.k)
+        self.responsibilities = np.ones([self.n,self.k])
+        self.normaliser       = np.ones(self.n)
         self.node_type = "gate"
         
         
@@ -163,7 +167,9 @@ class GaterNode(Node):
     
     def _prior(self,X):
         '''Calculates  prior probabilities for latent variables'''
-        self.responsibilities = sr.softmax(self.gater.theta,X)
+        self.responsibilities = bounded_variable(sr.softmax(self.gater.theta,X),
+                                                 self.underflow_tol,
+                                                 1)
         
         
     def up_tree_pass(self,X,nodes):
@@ -182,11 +188,19 @@ class GaterNode(Node):
              List with all nodes of HME
              
         '''
+        # calculate likelihood
+        old_responsibilities   = self.responsibilities / np.outer(self.normaliser, np.ones(self.k))
+        old_responsibilities   = bounded_variable(old_responsibilities,
+                                                  self.underflow_tol,
+                                                  1)
+        weighting              = self.weights
         self._prior(X)
+        lb                     = np.sum(old_responsibilities*np.log(self.responsibilities), axis = 1)
+        self.log_likelihood_lb = np.sum(weighting * lb)
         children = self.get_childrens(nodes)
         # all children should be of the same type
         if len(set([e.node_type for e in children])) != 1:
-               raise ValueError("Children nodes should have the same node type")         
+               raise ValueError("Children nodes should have the same node type")
         for i,child_node in enumerate(children):
             if child_node.node_type == "expert":
                self.responsibilities[:,i] *= child_node.weights
@@ -194,12 +208,13 @@ class GaterNode(Node):
                self.responsibilities[:,i] *= np.sum(child_node.responsibilities, axis = 1)
             else:
                 raise TypeError("Unidentified node type")
-        self.normaliser = np.sum(self.responsibilities, axis = 1)
+        self.normaliser         = np.sum(self.responsibilities, axis = 1)
         
         
     def down_tree_pass(self,X,nodes):
         '''
-        Calculates responsibilities and performs weighted maximum likelihood estimation
+        Calculates responsibilities and performs weighted maximum 
+        likelihood estimation
         
         Parameters:
         -----------
@@ -216,6 +231,7 @@ class GaterNode(Node):
             self.weights       = parent.weights*parent.responsibilities[:,birth_order]/parent.normaliser
         H = self.responsibilities / np.outer(self.normaliser, np.ones(self.k))
         self._m_step_update(H,X)
+        
         
         
     def propagate_mean_prediction(self,X,nodes):
@@ -238,7 +254,7 @@ class GaterNode(Node):
              Weighted prediction
 
         '''
-        self.prior(X)
+        self._prior(X)
         children        = self.get_childrens(nodes)
         n,m             = np.shape(X)
         mean_prediction = np.zeros(n)
@@ -265,7 +281,8 @@ class ExpertNodeAbstract(Node):
         
     def down_tree_pass(self,X,Y, nodes):
         '''
-        Calculates responsibilities and performs weighted maximum likelihood estimation,
+        Calculates responsibilities and performs weighted maximum likelihood
+        estimation.
         
         Parameters:
         -----------
@@ -281,8 +298,13 @@ class ExpertNodeAbstract(Node):
              
         '''
         parent, birth_order = self.get_parent_and_birth_order(nodes)
-        self.weights        = parent.weights * parent.responsibilities[:,birth_order]/parent.normaliser
-        self.m_step_update(X,Y)
+        self.weights        = parent.weights * parent.responsibilities[:,birth_order]
+        self.weights       /= parent.normaliser
+        self.weights        = bounded_variable(self.weights,
+                                               self.underflow_tol,
+                                               1)
+        self._m_step_update(X,Y)
+        
         
         
     def propagate_mean_prediction(self,X,nodes):
@@ -307,27 +329,6 @@ class ExpertNodeAbstract(Node):
         return self.expert.predict(X)
         
         
-#-------------------------------------- Linear Regression Expert Node --------------------------------------------
-
-        
-class ExpertNodeLinReg(ExpertNodeAbstract):
-    '''
-    Expert node in Hierarchical Mixture of Experts, with expert being 
-    standard weighted linear regression.
-    '''
-    
-    def __init__(self,*args,**kwargs):
-        ''' Initialise linear regression expert node '''
-        super(ExpertNodeLinReg,self).__init__(*args,**kwargs)
-        self.expert = wlr.WeightedLinearRegression()
-        self.expert.init_weights(self.m)
-        self.node_type = "expert"
-        
-    def _prior(self,X,Y):
-        ''' Calculates probability of observing Y given X and parameters of regression '''
-        self.weights = wlr.norm_pdf(self.expert.theta,Y,X,self.expert.var)
-        self.weights = bounded_variable(self.weights,self.underflow_tol, 1-self.underflow_tol)
-        
     def up_tree_pass(self,X,Y):
         '''
         Calculates prior probability of latent variables corresponding to 
@@ -343,7 +344,36 @@ class ExpertNodeLinReg(ExpertNodeAbstract):
              Target variable that should be approximated
              
         '''
+        resps = self.weights
         self._prior(X,Y)
+        # calculate lower bound for log-likelihood
+        self.log_likelihood_lb = np.sum(resps*np.log(self.weights))
+        
+        
+#-------------------------------------- Linear Regression Expert Node --------------------------------------------
+
+        
+class ExpertNodeLinReg(ExpertNodeAbstract):
+    '''
+    Expert node in Hierarchical Mixture of Experts, with expert being 
+    standard weighted linear regression.
+    '''
+    
+    def __init__(self,*args,**kwargs):
+        ''' Initialise linear regression expert node '''
+        super(ExpertNodeLinReg,self).__init__(*args,**kwargs)
+        self.expert = wlr.WeightedLinearRegression()
+        self.expert.init_params(self.m)
+        self.node_type = "expert"
+
+        
+    def _prior(self,X,Y):
+        ''' Calculates probability of observing Y given X and parameters of regression '''
+        self.weights = wlr.norm_pdf(self.expert.theta,Y,X,self.expert.var)
+        self.weights = bounded_variable(self.weights,self.underflow_tol, 1)
+        
+
+        
         
 
 #-------------------------------------- Logistic Regression Expert Node --------------------------------------------
@@ -351,9 +381,22 @@ class ExpertNodeLinReg(ExpertNodeAbstract):
     
 class ExpertNodeLogisticReg(ExpertNodeAbstract):
     
-    def __init__(self,n,node_position,k,m):
-        raise NotImplementedError("Wait, I am working on it")
+    def __init__(self,*args, **kwargs):
+        super(ExpertNodeLogisticReg,self).__init__(*args,**kwargs)
+        self.expert = lr.LogisticRegression( p_tol = self.conv_threshold, 
+                                             max_iter = self.max_iter)
+        self.expert.init_params(self.m)
+        self.node_type = "expert"
         
+    def _prior(self,X,Y):
+        ''' Calculates probability of observing Y given X and parameters of regression '''
+        self.weights = lr.logistic_pdf(self.expert.theta,Y,X)
+        self.weights = bounded_variable(self.weights,self.underflow_tol, 1-self.underflow_tol)
+       
+    def propagate_mean_prediction(self,X,nodes):
+        ''' Predicts probability of belonging '''
+        self.expert.predict_probs(X)
+    
         
         
 #----------------------------------------- Helper Methods & Classes ----------------------------------------------#
@@ -365,7 +408,7 @@ def bounded_variable(x,lo,hi):
     Parameters:
     -----------
     
-    x: numpy array of size 'n x 1'
+    x: numpy array of size 'n x k' (k can be 1)
        input vector
        
     hi: float
@@ -376,13 +419,21 @@ def bounded_variable(x,lo,hi):
        
     Returns:
     --------
-    
-    
+    : numpy array of size 'n x k'
        
     '''
-    x[ x > hi] = hi
-    x[ x < lo] = lo
-    return x
+    def _bounded_vector(z,lo,hi):
+        z[ z > hi] = hi
+        z[ z < lo] = lo
+        return z
+    if len(np.shape(x)) > 1:
+        for i in range(np.shape(x)[1]):
+            x[:,i] = _bounded_vector(x[:,i],lo,hi)
+        return x
+    return _bounded_vector(x,lo,hi)
+    
+    
+
     
     
 class NodeNotFoundError(Exception):
