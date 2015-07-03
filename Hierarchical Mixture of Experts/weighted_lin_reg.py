@@ -93,6 +93,8 @@ def norm_pdf(theta,y,x,sigma_2):
     prob       = normaliser* np.exp( -0.5 * u*u / sigma_2 )
     return prob
     
+#def hme_pdf_wrapper(theta,y,)
+    
     
 #------------------------------------- Weighted Linear Regression-------------------------#
 
@@ -113,7 +115,7 @@ class WeightedLinearRegression(object):
         self.var          = 0             # fitted variance
 
 
-    def init_weights(self,m):
+    def init_params(self,m):
         '''
         Initialises weights and preallocates memory
         
@@ -123,7 +125,7 @@ class WeightedLinearRegression(object):
            Number of parameters, should equal to dimensionality of data
            
         '''
-        self.theta = np.zeros(m)
+        self.theta = np.random.normal(0,1,m)
         self.var   = 1 
 
 
@@ -157,6 +159,7 @@ class WeightedLinearRegression(object):
             Y_tilda    = Y*np.sqrt(weights)
             Q,R        = np.linalg.qr(X_tilda)
             self.theta = qr_solver(Q,R,Y_tilda)
+        # calculate variances 
         vec_1       =  (Y - np.dot(X,self.theta))
         self.var    =  np.dot(vec_1,np.dot(vec_1,W))/np.sum(W)
         
