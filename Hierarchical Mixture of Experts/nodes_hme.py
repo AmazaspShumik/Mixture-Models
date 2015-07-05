@@ -157,7 +157,7 @@ class GaterNode(Node):
         self.gater.init_params(self.m,self.k)
         self.responsibilities = np.ones([self.n,self.k])
         self.normaliser       = np.ones(self.n)
-        self.node_type = "gate"
+        self.node_type        = "gate"
         
         
     def _m_step_update(self,H,X):
@@ -259,7 +259,7 @@ class GaterNode(Node):
         n,m             = np.shape(X)
         mean_prediction = np.zeros(n)
         for i,child in enumerate(children):
-            mean_prediction+= (self.responsibilities[:,i] * child.propagate_mean_prediction(X,nodes))
+            mean_prediction += (self.responsibilities[:,i] * child.propagate_mean_prediction(X,nodes))
         return mean_prediction
         
         
@@ -306,7 +306,6 @@ class ExpertNodeAbstract(Node):
         self._m_step_update(X,Y)
         
         
-        
     def propagate_mean_prediction(self,X,nodes):
         '''
         Returns prediction of expert for test input X
@@ -329,25 +328,7 @@ class ExpertNodeAbstract(Node):
         return self.expert.predict(X)
         
         
-    def up_tree_pass(self,X,Y):
-        '''
-        Calculates prior probability of latent variables corresponding to 
-        expert at node.
-        
-        Parameters:
-        -----------
-        
-        X: numpy array of size 'n x m'
-            Explanatory variables
-            
-        Y: numpy array of size 'n x 1'
-             Target variable that should be approximated
-             
-        '''
-        resps = self.weights
-        self._prior(X,Y)
-        # calculate lower bound for log-likelihood
-        self.log_likelihood_lb = np.sum(resps*np.log(self.weights))
+
         
         
 #-------------------------------------- Linear Regression Expert Node --------------------------------------------
@@ -372,6 +353,27 @@ class ExpertNodeLinReg(ExpertNodeAbstract):
         self.weights = wlr.norm_pdf(self.expert.theta,Y,X,self.expert.var)
         self.weights = bounded_variable(self.weights,self.underflow_tol, 1)
         
+        
+    def up_tree_pass(self,X,Y):
+        '''
+        Calculates prior probability of latent variables corresponding to 
+        expert at node and likelihood. 
+        
+        Parameters:
+        -----------
+        
+        X: numpy array of size 'n x m'
+            Explanatory variables
+            
+        Y: numpy array of size 'n x 1'
+             Target variable that should be approximated
+             
+        '''
+        resps = self.weights
+        self._prior(X,Y)
+        # calculate lower bound for log-likelihood
+        self.log_likelihood_lb = np.sum(resps*np.log(self.weights))
+        
 
         
         
@@ -388,18 +390,44 @@ class ExpertNodeLogisticReg(ExpertNodeAbstract):
         self.expert.init_params(self.m)
         self.node_type = "expert"
         
+        
     def _prior(self,X,Y):
         ''' Calculates probability of observing Y given X and parameters of regression '''
         self.weights = lr.logistic_pdf(self.expert.theta,Y,X)
-        self.weights = bounded_variable(self.weights,self.underflow_tol, 1-self.underflow_tol)
+        self.weights = bounded_variable(self.weights,self.underflow_tol, 1)
+       
        
     def propagate_mean_prediction(self,X,nodes):
         ''' Predicts probability of belonging '''
-        self.expert.predict_probs(X)
+        return self.expert.predict_probs(X)
+        
+        
+    def up_tree_pass(self,X,Y):
+        '''
+        Calculates prior probability of latent variables corresponding to 
+        expert at node and likelihood. 
+        
+        Parameters:
+        -----------
+        
+        X: numpy array of size 'n x m'
+            Explanatory variables
+            
+        Y: numpy array of size 'n x 1'
+             Target variable that should be approximated
+             
+        '''
+        resps = self.weights
+        self._prior(X,Y)
+        # calculate lower bound for log-likelihood
+        logistic_cost = Y*np.log(self.weights)
+        self.log_likelihood_lb = np.sum(resps*logistic_cost)
+        
     
         
         
 #----------------------------------------- Helper Methods & Classes ----------------------------------------------#
+        
         
 def bounded_variable(x,lo,hi):
     '''
@@ -434,8 +462,6 @@ def bounded_variable(x,lo,hi):
     
     
 
-    
-    
 class NodeNotFoundError(Exception):
     '''
     Error raised in case node is not found
