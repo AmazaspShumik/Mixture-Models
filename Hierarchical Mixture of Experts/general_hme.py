@@ -3,6 +3,7 @@
 import nodes_hme as nh
 import numpy as np
 import matplotlib.pyplot as plt
+import label_binariser as lb
 
 class HME(object):
     '''
@@ -46,7 +47,11 @@ class HME(object):
         n,m               = np.shape(X)
         self.Y            = Y
         self.X            = X
+        assert expert_type in ["gaussian","logit"], "Parameter expert type is wrong"
         self.expert_type  = expert_type
+        if expert_type == "logit":
+            self.converter = lb.LabelBinariser(Y,2)
+            self.Y         = self.converter.logistic_reg_direct_mapping()
         self.max_iter     = max_iter
         self._create_hme_topology(levels,n,m,branching)
         # lower bound of log likelihood, saves values of lower bounds for each
@@ -128,7 +133,7 @@ class HME(object):
                 out = "iteration {0} completed, lower bound of log-likelihood is {1} "
                 print out.format(i,self.log_like_low[-1])
             self._down_tree_pass()
-            if len(self.log_like_low) >= 10:
+            if len(self.log_like_low) >= 2:
                 last = self.log_like_low[-1]
                 prev = self.log_like_low[-2]
                 if (last - prev)/abs(prev) < self.conv_thresh:
@@ -138,8 +143,11 @@ class HME(object):
             
             
     def predict_mean(self,X):
-        return self.nodes[0].propagate_mean_prediction(X,self.nodes)
-
+        prediction = self.nodes[0].propagate_mean_prediction(X,self.nodes)
+        if self.expert_type == "logit":
+            return self.converter.logistic_reg_inverse_mapping(prediction)
+        return prediction
+    
     
 if __name__=="__main__":
 #    X      = np.zeros([100,2])
@@ -151,17 +159,32 @@ if __name__=="__main__":
 #    hme.iterate()
 #    test coef
 #    theta_exp = np.dot(np.linalg.inv(np.dot(X.T,X)), np.dot(X.T,Y))
-    X      = np.zeros([1000,2])
-    X[:,0] = np.linspace(0, 10, 1000)
-    X[:,1] = np.ones(1000)
-    Y = np.sin(X[:,0])*4 + np.random.normal(0,1,1000)
-    hme = HME(Y, X,"gaussian", verbose = True)
-    #hme.operate()
+
+#    Regression example
+
+#    X      = np.zeros([1000,2])
+#    X[:,0] = np.linspace(0, 10, 1000)
+#    X[:,1] = np.ones(1000)
+#    Y = np.sin(X[:,0])*4 + np.random.normal(0,1,1000)
+#    hme = HME(Y, X,"gaussian", verbose = True)
+#    #hme.operate()
+#    hme.fit()
+#    Y_hat = hme.predict_mean(X)
+#    plt.plot(Y,"b+")
+#    plt.plot(Y_hat,"r-")
+#    plt.show()
+
+#    Classification example
+
+    X = np.ones([300,3])
+    X[:,1] = np.random.random(300)
+    X[:,2] = np.random.random(300)
+    Y = np.array(["y" for i in range(300)])
+    Y[(X[:,1]-0.5)**2+(X[:,2]-0.5)**2 < 0.1] = "n"
+    hme = HME(Y, X,"logit", verbose = True)
     hme.fit()
     Y_hat = hme.predict_mean(X)
-    plt.plot(Y,"b+")
-    plt.plot(Y_hat,"r-")
-    plt.show()
-    #hme.up_tree()
+    plt.plot(X[Y_hat=="n",1],X[Y_hat=="n",2],"r+")
+    plt.plot(X[Y_hat=="y",1],X[Y_hat=="y",2],"b+")
     #hme.down_tree()
         
