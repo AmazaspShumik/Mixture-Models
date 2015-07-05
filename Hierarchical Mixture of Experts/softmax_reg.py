@@ -188,7 +188,7 @@ class SoftmaxRegression(object):
         self.max_iter               = max_iter
         self.theta                  = 0
         
-    def init_weights(self,m,k):
+    def init_params(self,m,k):
         '''
         
         Parameters:
@@ -199,7 +199,7 @@ class SoftmaxRegression(object):
         k: int
            Number of classes in classification problem
         '''
-        self.theta = np.zeros([m,k], dtype = np.float)
+        self.theta = np.random.random([m,k])
         
     
     def fit_vector_output(self,Y,X,K,weights):
