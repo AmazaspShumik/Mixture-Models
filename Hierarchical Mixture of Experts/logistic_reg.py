@@ -202,22 +202,22 @@ class LogisticRegression(object):
         
 
 if __name__ == "__main__":
-    X = np.ones([50,3])
-    X[:,1] = np.random.normal(0,1,50)
-    X[:,2] = np.random.normal(0,1,50)
-    X[25:50,1:3] = X[25:50,1:3] + 10
-    Y = np.array(["y" for i in range(50)])
-    Y[25:50] = "n"
-    lr = LogisticRegression()
-    lr.fit(Y,X,np.ones(50))
-    Y_hat = lr.predict_probs(X)
-    Y_est = lr.predict(X)
-    # plot decision boundary
-    x1 = np.linspace(-3,10,100)
-    x2 = -1*(lr.theta[0]+x1*lr.theta[1])/lr.theta[2]
-    plt.plot(x2,x1,"g+")
-    plt.plot(X[Y=="n",1],X[Y=="n",2],"b+")
-    plt.plot(X[Y=="y",1],X[Y=="y",2],"c+")
-    plt.show()
+#    X = np.ones([50,3])
+#    X[:,1] = np.random.normal(0,1,50)
+#    X[:,2] = np.random.normal(0,1,50)
+#    X[25:50,1:3] = X[25:50,1:3] + 10
+#    Y = np.array(["y" for i in range(50)])
+#    Y[25:50] = "n"
+#    lr = LogisticRegression()
+#    lr.fit(Y,X,np.ones(50))
+#    Y_hat = lr.predict_probs(X)
+#    Y_est = lr.predict(X)
+#    # plot decision boundary
+#    x1 = np.linspace(-3,10,100)
+#    x2 = -1*(lr.theta[0]+x1*lr.theta[1])/lr.theta[2]
+#    plt.plot(x2,x1,"g+")
+#    plt.plot(X[Y=="n",1],X[Y=="n",2],"b+")
+#    plt.plot(X[Y=="y",1],X[Y=="y",2],"c+")
+#    plt.show()
     
         
