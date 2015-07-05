@@ -46,7 +46,6 @@ class LabelBinariser(object):
         self.Y          = Y
         self.n          = np.shape(Y)[0]
         self.k          = k
-        
         #  mapping between set of integers to set of classes
         classes         = set(Y)
         if len(classes) != k:
@@ -99,6 +98,7 @@ class LabelBinariser(object):
         Y[self.Y==el_one] = 1
         return Y
     
+    
     def logistic_reg_inverse_mapping(self,Y):
         '''
         Converts vector of zeros and ones to original format.
@@ -115,7 +115,9 @@ class LabelBinariser(object):
             Target estimates in original format.
             
         '''
-        Y_out = np.zeros(self.n, dtype = self.Y.dtype)
+        Y[Y >  0.5] = 1
+        Y[Y <= 0.5] = 0
+        Y_out       = np.zeros(self.n, dtype = self.Y.dtype)
         Y_out[Y==1] = self.inverse_mapping[1]
         Y_out[Y==0] = self.inverse_mapping[0]
         return Y_out
