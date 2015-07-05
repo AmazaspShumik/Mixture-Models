@@ -110,7 +110,7 @@ class LogisticRegression(object):
         return self.binarisator.logistic_reg_direct_mapping()
         
         
-    def fit(self,Y_raw,X,weights = None, preprocess_input = True):
+    def fit(self,X,Y_raw,weights = None, preprocess_input = False):
         '''
         Fits model, finds best parameters.
         
