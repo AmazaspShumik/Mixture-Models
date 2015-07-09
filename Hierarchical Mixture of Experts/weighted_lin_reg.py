@@ -7,6 +7,8 @@ Weighted Linear Regression , Expert in HME model
 """
 
 import numpy as np
+from scipy import linalg
+from helpers import *
 
 #------------------------------------ Least Squares Solvers-------------------------------#
 
@@ -62,6 +64,25 @@ def qr_solver(Q,R,Y):
     qy      = np.dot(Q.T,Y)
     Theta   = np.linalg.solve(R,qy)
     return  Theta
+   
+   
+def lstsq_wrapper(y,X):
+    '''
+    Uses C++ Linear Algebra Package to calculate coefficients and residuals
+    of regression. Is much faster than other methods, since it calls C++ functions.
+    
+    Parameters:
+    -----------
+    
+    Y: numpy array of size 'n x 1'
+        Vector of dependent variables
+        
+    X: numpy array of size 'n x m'
+        Explanatory variables
+    '''
+    theta,r,rank,s = linalg.lstsq(X,y)
+    return theta
+    
     
 #----------------------------------
     
@@ -92,9 +113,7 @@ def norm_pdf(theta,y,x,sigma_2):
     u          = y - np.dot(x,theta)
     prob       = normaliser* np.exp( -0.5 * u*u / sigma_2 )
     return prob
-    
-#def hme_pdf_wrapper(theta,y,)
-    
+        
     
 #------------------------------------- Weighted Linear Regression-------------------------#
 
@@ -104,15 +123,20 @@ class WeightedLinearRegression(object):
             
     Parameters:
     -----------
-    solver: string
+    
+    solver: string (default = "qr")
          Numerical method to find weighted linear regression solution
+         
+    underflow_tol: float (default = 1e-20)
+         Threshold to prevent underflow in likelihood computation
+         
     '''
     
-    def __init__(self, solver = "qr"):
-        self.solver       = solver
-        self.theta        = 0             # coefficients excluding bias term
-        self.mse          = 0             # mean squared error
-        self.var          = 0             # fitted variance
+    def __init__(self, solver = "qr", underflow_tol = 1e-20):
+        self.solver        = solver
+        self.theta         = 0             
+        self.var           = 0               
+        self.underflow_tol = underflow_tol
 
 
     def init_params(self,m):
@@ -148,17 +172,24 @@ class WeightedLinearRegression(object):
         '''
         n,m         =  np.shape(X)
         W           =  np.diagflat(weights)
+        
         # use cholesky decomposition for least squares 
         if self.solver == "cholesky":
            part_one    =  np.dot(np.dot(X.T,W),X)
            part_two    =  np.dot(np.dot(X.T,W),Y)
            self.theta  =  cholesky_solver_least_squares(part_one, part_two)
+           
         # use qr decomposition for least squares
         elif self.solver == "qr":
             X_tilda    = np.dot(X.T,np.sqrt(W)).T
             Y_tilda    = Y*np.sqrt(weights)
             Q,R        = np.linalg.qr(X_tilda)
             self.theta = qr_solver(Q,R,Y_tilda)
+            
+        # lapack least squares solver
+        elif self.solver == "lapack_solver":
+            self.theta = lstsq_wrapper(Y*np.sqrt(weights),np.dot(X.T,np.sqrt(W)).T)
+            
         # calculate variances 
         vec_1       =  (Y - np.dot(X,self.theta))
         self.var    =  np.dot(vec_1,np.dot(vec_1,W))/np.sum(W)
@@ -180,6 +211,37 @@ class WeightedLinearRegression(object):
         
         '''
         return np.dot(X,self.theta)
+        
+        
+    def log_likelihood(self,X,Y,weights):
+        '''
+        Returns log likelihood for linear regression with noise distributed 
+        as Gaussian
+        
+        Parameters:
+        -----------
+        
+        X: numpy array of size 'n x m'
+             Explanatory variables
+        
+        Y: numpy array of size 'n x 1'
+             Target variable can take only values 0 or 1
+         
+        weights: numpy array of size 'n x 1'
+             Weights for observations
+             
+        Returns:
+        --------
+        
+        weighted_log_likelihood: float
+             Log likelihood
+
+        '''
+        probs               = norm_pdf(self.theta,Y,X,self.var)
+        probs               = bounded_variable(probs,self.underflow_tol,1)
+        weighted_log_likelihood = np.sum(weights*np.log(probs))
+        return weighted_log_likelihood
+
         
 
 
