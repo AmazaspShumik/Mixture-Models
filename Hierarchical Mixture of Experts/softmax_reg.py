@@ -4,10 +4,11 @@
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
 import label_binariser as lb
-from helpers import *
+from scipy.misc import logsumexp
 
 
-def softmax(Theta,X):
+
+def log_softmax(Theta,X):
     '''
     Calculates value of softmax function. Output can be interpreted as matrix
     of probabilities, where  each entry of column i is probability that corresponding 
@@ -25,20 +26,21 @@ def softmax(Theta,X):
     
     Returns:
     --------
-     : numpy array of size 'n x k'
+     probs: numpy array of size 'n x k'
              Matrix of probabilities
 
     '''
-    n,m = np.shape(X)
-    m,k = np.shape(Theta)
-    max_vec = np.max( np.dot(X,Theta), axis = 1)                       # substract max element, prevents overflow
-    X_Theta = np.dot(X,Theta) - np.outer(max_vec,np.ones(k))
-    return np.exp( X_Theta )/np.outer(np.sum( np.exp( X_Theta ) , axis = 1),np.ones(k))
-    
-    
+    n,m           = np.shape(X)
+    m,k           = np.shape(Theta)
+    X_Theta       = np.dot(X,Theta)
+    norm          = logsumexp(X_Theta, axis = 1)
+    norm          = np.outer(norm, np.ones(k))
+    log_softmax   = X_Theta - norm
+    return log_softmax
+
 
     
-def cost_grad(Theta,Y,X,k,weights, underflow_tol = 1e-20):
+def cost_grad(Theta,Y,X,k,weights, underflow_tol = 1e-20, lambda_reg = 0.0, bias_term = True):
     '''
     Calculates negative log likelihood and gradient of negative log likelihood of multinomial
     distribution together. Reusing intermediate values created in process of likelihood
@@ -62,6 +64,9 @@ def cost_grad(Theta,Y,X,k,weights, underflow_tol = 1e-20):
              
     underflow_tol: float
              Threshold for preventing underflow
+             
+    lambda_reg: float
+             Tikhunov regularization parameter
     
     Returns:
     --------
@@ -70,13 +75,19 @@ def cost_grad(Theta,Y,X,k,weights, underflow_tol = 1e-20):
             First element is value of cost function, second element is numpy array 
             of size 'm x 1', representing gradient
     '''
-    n,m         =  np.shape(X)
-    Theta       =  np.reshape(Theta,(m,k))                                         
-    P           =  bounded_variable(softmax(Theta,X), underflow_tol,1)
-    unweighted  =  np.sum(Y*np.log(P), axis = 1)
-    cost        =  -1.0/n*np.dot(weights,unweighted)
-    resid       =  (Y-P)
-    grad        =  -1.0/n*np.dot(np.dot(X.T,np.diagflat(weights)),resid)
+    n,m                   =  np.shape(X)
+    Theta                 =  np.reshape(Theta,(m,k))                                         
+    log_P                 =  log_softmax(Theta,X)
+    unweighted            =  np.sum(Y*log_P, axis = 1)
+    reg_term_grad         =  lambda_reg*Theta
+    if bias_term is True:
+        reg_term_cost         = lambda_reg*np.sum(Theta[0:-1,:]*Theta[0:-1,:])
+        reg_term_grad[-1,:]   =  np.zeros(k)
+    else:
+        reg_term_cost         = lambda_reg*np.sum(Theta*Theta)
+    cost        =  -1.0*np.dot(weights,unweighted) + reg_term_cost
+    resid       =  (Y-np.exp(log_P))
+    grad        =  -1.0*np.dot(np.dot(X.T,np.diagflat(weights)),resid) + 2*reg_term_grad
     return (cost, np.reshape(grad,(m*k,)))
     
 
@@ -100,13 +111,18 @@ class SoftmaxRegression(object):
     underflow_tol: float (default: 1e-20)
                 Threshold for preventing underflow
                 
-                
+    lambda_reg: float
+                Tikhunov regularisation parameter (introduced for numerical stability)
+                    
     '''
     
-    def __init__(self,tolerance = 1e-10, max_iter = 80, underflow_tol = 1e-20):
+    def __init__(self,tolerance = 1e-5, max_iter = 80, underflow_tol = 1e-20,lambda_reg = 0.000):
         self.tolerance              = tolerance
         self.max_iter               = max_iter
         self.underflow_tol          = underflow_tol
+        self.lambda_reg             = lambda_reg
+        self.delta_param_norm       = 0
+        self.theta                  = None
 
         
     def init_params(self,m,k):
@@ -120,7 +136,9 @@ class SoftmaxRegression(object):
         k: int
            Number of classes in classification problem
         '''
-        self.theta = np.random.random([m,k])
+        # for soft splits in beginning of training in HME make parameters smaller
+        self.theta = np.random.random([m,k])*(1e-2)
+        
         
         
     def _pre_processing_targets(self,Y,k):
@@ -160,10 +178,22 @@ class SoftmaxRegression(object):
             Y            =  self._pre_processing_targets(Y_raw,k)
         else:
             Y            =  Y_raw
-        fitter          = lambda theta: cost_grad(theta,Y,X,k,weights,self.underflow_tol)
+        fitter          = lambda theta: cost_grad(theta,Y,X,k,weights,
+                                                  self.underflow_tol,
+                                                  self.lambda_reg)
+        # initialise parameters
         n,m             = np.shape(X)
         self.k          = k
-        theta_initial   = 0.1*np.random.random(m*k)
+        
+        # save recovery paramters in case log-likelihood drops due to underflow
+        theta_recovery  = self.theta
+        log_like_before = self.log_likelihood(X,Y,weights,k)
+        
+        theta_initial   = np.random.random([m,k])*1e-3
+        if self.theta is not None:
+            theta_initial += self.theta
+        
+        # optimisation
         theta,J,D       = fmin_l_bfgs_b(fitter,
                                         theta_initial,
                                         fprime = None,
@@ -171,6 +201,16 @@ class SoftmaxRegression(object):
                                         approx_grad = False,
                                         maxiter = self.max_iter)
         self.theta      = np.reshape(theta,(m,k))
+        
+        # check behaviour of log-likelihood 
+        log_like_after = self.log_likelihood(X,Y,weights,k)
+        delta_log_like = log_like_after - log_like_before
+        if delta_log_like < self.underflow_tol:
+            self.theta = theta_recovery
+            
+        # l2 of delta params norm
+        delta = self.theta - theta_recovery
+        self.delta_param_norm = np.sum(np.dot(delta.T,delta))
         
         
     def predict_probs(self,X_test):
@@ -190,9 +230,31 @@ class SoftmaxRegression(object):
              Matrix of probabilities, showing probabilty of observation belong
              to particular class
         '''
-        P = softmax(self.theta,X_test)
+        log_P = log_softmax(self.theta,X_test)
+        P     = np.exp(log_P)
         return P
-    
+        
+        
+    def predict_log_probs(self,X_test):
+        '''
+        Calculates matrix of log probabilities
+        
+        Parameters:
+        -----------
+        
+        X_test: numpy array of size 'uknown x m' 
+             Explanatory variables of test set
+        
+        Returns:
+        -------
+                 
+        log_P: numpy array of size 'uknown x k'
+             Matrix of log probabilities
+             
+        '''
+        log_P = log_softmax(self.theta,X_test)
+        return log_P
+        
     
     def predict(self,X_test):
         '''
@@ -217,7 +279,7 @@ class SoftmaxRegression(object):
         return prediction
         
         
-    def log_likelihood(self,X,Y,weights, preprocess = False):
+    def log_likelihood(self,X,Y,weights,k, preprocess = False):
         '''
         Returns log likelihood for softmax regression
         
@@ -244,8 +306,37 @@ class SoftmaxRegression(object):
         
         '''
         if preprocess is True:
-            Y = self.binarisator.convert_vec_to_binary_matrix()
-        weighted_log_likelihood = -1*cost_grad(self.theta,Y,X,self.k,weights,self.underflow_tol)[0]
+            Y = self._pre_processing_targets(Y,k)
+        weighted_log_likelihood = -1*cost_grad(self.theta,Y,X,k,weights,self.underflow_tol)[0]
         return weighted_log_likelihood
         
+        
+if __name__=="__main__":
+    X = np.ones([100,3])
+    X[:,1] = np.random.normal(0,1,100)
+    X[:,2] = np.random.normal(0,1,100)
+    X[25:50,1:3] = X[25:50,1:3] + 10
+    X[50:75,1:3] = X[50:75,1:3] + 20
+    X[75:100,1:3] = X[75:100,1:3] + 30
+    Y = np.zeros([100,1])
+    Y[25:50,0] = 1
+    Y[50:75,0] = 2
+    Y[75:100,0] = 3
+    sr = SoftmaxRegression()
+    sr.init_params(3,4)
+    sr.fit(Y[:,0],X,4,np.ones(100),True)
+    Y_pred = sr.predict(X)
+    print "diff"
+    print np.sum(Y_pred!=Y[:,0])
+    from statsmodels.discrete import discrete_model
+    #result = discrete_model.MNLogit(Y[:,0],X).fit()
+    #print result.summary()
+    
+    X = np.random.random([8,2])
+    Theta = np.random.random([2,3])
+    
+#    def check(X,Theta):
+#        l1 = log_softmax(Theta,X)
+#        l2 = softmax(Theta,X)
+#        print np.exp(l1) - l2
 
