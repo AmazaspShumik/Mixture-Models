@@ -40,7 +40,7 @@ def log_softmax(Theta,X):
 
 
     
-def cost_grad(Theta,Y,X,k,weights, underflow_tol = 1e-20, lambda_reg = 0.0, bias_term = True):
+def cost_grad(Theta,Y,X,k,weights, underflow_tol = 1e-20,  bias_term = True):
     '''
     Calculates negative log likelihood and gradient of negative log likelihood of multinomial
     distribution together. Reusing intermediate values created in process of likelihood
@@ -79,15 +79,9 @@ def cost_grad(Theta,Y,X,k,weights, underflow_tol = 1e-20, lambda_reg = 0.0, bias
     Theta                 =  np.reshape(Theta,(m,k))                                         
     log_P                 =  log_softmax(Theta,X)
     unweighted            =  np.sum(Y*log_P, axis = 1)
-    reg_term_grad         =  lambda_reg*Theta
-    if bias_term is True:
-        reg_term_cost         = lambda_reg*np.sum(Theta[0:-1,:]*Theta[0:-1,:])
-        reg_term_grad[-1,:]   =  np.zeros(k)
-    else:
-        reg_term_cost         = lambda_reg*np.sum(Theta*Theta)
-    cost        =  -1.0*np.dot(weights,unweighted) + reg_term_cost
+    cost        =  -1.0*np.dot(weights,unweighted)
     resid       =  (Y-np.exp(log_P))
-    grad        =  -1.0*np.dot(np.dot(X.T,np.diagflat(weights)),resid) + 2*reg_term_grad
+    grad        =  -1.0*np.dot(np.dot(X.T,np.diagflat(weights)),resid)
     return (cost, np.reshape(grad,(m*k,)))
     
 
@@ -111,16 +105,12 @@ class SoftmaxRegression(object):
     underflow_tol: float (default: 1e-20)
                 Threshold for preventing underflow
                 
-    lambda_reg: float
-                Tikhunov regularisation parameter (introduced for numerical stability)
-                    
     '''
     
-    def __init__(self,tolerance = 1e-5, max_iter = 80, underflow_tol = 1e-20,lambda_reg = 0.000):
+    def __init__(self,tolerance = 1e-5, max_iter = 80, underflow_tol = 1e-20):
         self.tolerance              = tolerance
         self.max_iter               = max_iter
         self.underflow_tol          = underflow_tol
-        self.lambda_reg             = lambda_reg
         self.delta_param_norm       = 0
         self.theta                  = None
 
@@ -179,8 +169,7 @@ class SoftmaxRegression(object):
         else:
             Y            =  Y_raw
         fitter          = lambda theta: cost_grad(theta,Y,X,k,weights,
-                                                  self.underflow_tol,
-                                                  self.lambda_reg)
+                                                  self.underflow_tol)
         # initialise parameters
         n,m             = np.shape(X)
         self.k          = k
