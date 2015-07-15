@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 
+# THINGS TO DO
+
+# TODO: Implement function analytically computing hessian for softmax regression 
+#       without overparametrisation
+# 
+
 
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
@@ -40,7 +46,7 @@ def log_softmax(Theta,X):
 
 
     
-def cost_grad(Theta,Y,X,k,weights, underflow_tol = 1e-20,  bias_term = True):
+def cost_grad(Theta,Y,X,k,weights,  bias_term = True):
     '''
     Calculates negative log likelihood and gradient of negative log likelihood of multinomial
     distribution together. Reusing intermediate values created in process of likelihood
@@ -61,13 +67,7 @@ def cost_grad(Theta,Y,X,k,weights, underflow_tol = 1e-20,  bias_term = True):
     
     k: int 
              Number of classes
-             
-    underflow_tol: float
-             Threshold for preventing underflow
-             
-    lambda_reg: float
-             Tikhunov regularization parameter
-    
+
     Returns:
     --------
     
@@ -76,13 +76,22 @@ def cost_grad(Theta,Y,X,k,weights, underflow_tol = 1e-20,  bias_term = True):
             of size 'm x 1', representing gradient
     '''
     n,m                   =  np.shape(X)
-    Theta                 =  np.reshape(Theta,(m,k))                                         
+    Theta                 =  np.reshape(Theta,(m,k-1))
+    Theta                 =  np.concatenate([np.zeros([m,1]),Theta], axis = 1)
     log_P                 =  log_softmax(Theta,X)
     unweighted            =  np.sum(Y*log_P, axis = 1)
-    cost        =  -1.0*np.dot(weights,unweighted)
-    resid       =  (Y-np.exp(log_P))
-    grad        =  -1.0*np.dot(np.dot(X.T,np.diagflat(weights)),resid)
-    return (cost, np.reshape(grad,(m*k,)))
+    cost                  =  -1.0*np.dot(weights,unweighted)
+    resid                 =  (Y-np.exp(log_P))
+    X_w                   =  X*np.outer(weights, np.ones(m))
+    grad                  =  -1.0*np.dot(X_w.T,resid)
+    grad                  =  grad[:,1:]
+    # use no.array(np.reshape()), otherwise l_bfgs_b have strange initialisation error
+    return (cost, np.array(np.reshape(grad,(m*(k-1),))))
+    
+    
+#TODO: analytical calculation of hessian for faster convergence 
+def cost_grad_hess(Theta,Y,X,k,weights, bias_term = True):
+    pass
     
 
 #----------------------------------------  Softmax Regression  --------------------------------------------#
@@ -107,12 +116,14 @@ class SoftmaxRegression(object):
                 
     '''
     
-    def __init__(self,tolerance = 1e-5, max_iter = 80, underflow_tol = 1e-20):
+    def __init__(self,tolerance = 1e-5, max_iter = 20, stop_learning = 1e-3):
         self.tolerance              = tolerance
         self.max_iter               = max_iter
-        self.underflow_tol          = underflow_tol
+        self.stop_learning          = stop_learning
         self.delta_param_norm       = 0
+        self.delta_log_like         = 0
         self.theta                  = None
+        
 
         
     def init_params(self,m,k):
@@ -127,8 +138,9 @@ class SoftmaxRegression(object):
            Number of classes in classification problem
         '''
         # for soft splits in beginning of training in HME make parameters smaller
-        self.theta = np.random.random([m,k])*(1e-2)
-        
+        self.theta      = np.random.random([m,k])*(1e-2)
+        # restrict paramters so that softmax regression will not be overparamerised
+        self.theta[:,0] = np.zeros(m) 
         
         
     def _pre_processing_targets(self,Y,k):
@@ -168,37 +180,65 @@ class SoftmaxRegression(object):
             Y            =  self._pre_processing_targets(Y_raw,k)
         else:
             Y            =  Y_raw
-        fitter          = lambda theta: cost_grad(theta,Y,X,k,weights,
-                                                  self.underflow_tol)
+
         # initialise parameters
         n,m             = np.shape(X)
         self.k          = k
+        
+        # initiate parameters for fitting (avoids overparametarization)
+        theta_initial   = np.zeros([m,k-1])
+        if self.theta is None:
+            self.init_params(m,k)
+        
+        # Use previously fitted values for refitting, if weights in HME changed a 
+        # little this will provide much faster convergence since initialised parameters 
+        # will be near optimal point.
+        theta_initial  += self.theta[:,1:]
         
         # save recovery paramters in case log-likelihood drops due to underflow
         theta_recovery  = self.theta
         log_like_before = self.log_likelihood(X,Y,weights,k)
         
-        theta_initial   = np.random.random([m,k])*1e-3
-        if self.theta is not None:
-            theta_initial += self.theta
-        
-        # optimisation
+        # optimisation with lbfgsb
+        fitter          = lambda theta: cost_grad(theta,Y,X,k,weights,self.stop_learning)
         theta,J,D       = fmin_l_bfgs_b(fitter,
                                         theta_initial,
                                         fprime = None,
                                         pgtol = self.tolerance,
                                         approx_grad = False,
                                         maxiter = self.max_iter)
-        self.theta      = np.reshape(theta,(m,k))
+        
+        # theta with dimensionality m x k-1 
+        theta           = np.reshape(theta,(m,k-1))
+        # transform to standard softmax representattion with m x k dimensionality
+        self.theta      = np.concatenate([np.zeros([m,1]), theta], axis = 1)
         
         # check behaviour of log-likelihood 
         log_like_after = self.log_likelihood(X,Y,weights,k)
-        delta_log_like = log_like_after - log_like_before
-        if delta_log_like < self.underflow_tol:
-            self.theta = theta_recovery
-            
-        # l2 of delta params norm
+        delta_log_like = (log_like_after - log_like_before) / n
+        
+        # Code below is for two following cases:
+        #
+        # CASE 1: 
+        #         In process of fitting deep HME due to errors in floating point
+        #         operations and underflows, when weights change is small 
+        #         ( errors seem to start when total change in weights is 1e-30 and smaller)
+        #         log-likelihood of model after refitting can be smaller than before.
+        #         If that happens then model uses old parameters instead of new
+        #
+        # CASE 2:  
+        #         If version of softmax regression is not overparameterised then it
+        #         suffers from the same drawback as logistic regression, in case of perfect
+        #         or near perfect separability norm of parameters keep increasing ( basically
+        #         multiplying optimal w by constant). In that case change in parameters does 
+        #         not decrease, while change in log-likelihood is tiny.
+        #
+        if delta_log_like < self.stop_learning:
+            self.theta     = theta_recovery
+            delta_log_like = 0
+        # save changes in likelihood and parameters
         delta = self.theta - theta_recovery
+        self.delta_log_like   = delta_log_like
         self.delta_param_norm = np.sum(np.dot(delta.T,delta))
         
         
@@ -296,36 +336,13 @@ class SoftmaxRegression(object):
         '''
         if preprocess is True:
             Y = self._pre_processing_targets(Y,k)
-        weighted_log_likelihood = -1*cost_grad(self.theta,Y,X,k,weights,self.underflow_tol)[0]
+        weighted_log_likelihood = -1*cost_grad(self.theta[:,1:],Y,X,k,weights,self.stop_learning)[0]
         return weighted_log_likelihood
         
         
-if __name__=="__main__":
-    X = np.ones([100,3])
-    X[:,1] = np.random.normal(0,1,100)
-    X[:,2] = np.random.normal(0,1,100)
-    X[25:50,1:3] = X[25:50,1:3] + 10
-    X[50:75,1:3] = X[50:75,1:3] + 20
-    X[75:100,1:3] = X[75:100,1:3] + 30
-    Y = np.zeros([100,1])
-    Y[25:50,0] = 1
-    Y[50:75,0] = 2
-    Y[75:100,0] = 3
-    sr = SoftmaxRegression()
-    sr.init_params(3,4)
-    sr.fit(Y[:,0],X,4,np.ones(100),True)
-    Y_pred = sr.predict(X)
-    print "diff"
-    print np.sum(Y_pred!=Y[:,0])
-    from statsmodels.discrete import discrete_model
-    #result = discrete_model.MNLogit(Y[:,0],X).fit()
-    #print result.summary()
-    
-    X = np.random.random([8,2])
-    Theta = np.random.random([2,3])
-    
-#    def check(X,Theta):
-#        l1 = log_softmax(Theta,X)
-#        l2 = softmax(Theta,X)
-#        print np.exp(l1) - l2
-
+    def posterior_log_probs(self,X,Y):
+        '''
+        Calculates probability of observing Y given X and parameters
+        '''
+        log_p = np.sum(Y*log_softmax(self.theta,X), axis = 1)
+        return log_p
