@@ -57,7 +57,7 @@ class LabelBinariser(object):
             self.inverse_mapping[i] = el
             
             
-    def convert_vec_to_binary_matrix(self, compress = False):
+    def convert_vec_to_binary_matrix(self,Y_raw = None, compress = False):
         '''
         Converts vector to ground truth matrix
         
@@ -75,6 +75,8 @@ class LabelBinariser(object):
                each row has all zeros and only one 1.  
                 
         '''
+        if Y_raw is None:
+            Y_raw = self.Y
         Y = np.zeros([self.n,self.k])
         for el,idx in self.direct_mapping.items():
             Y[self.Y==el,idx] = 1
@@ -82,9 +84,10 @@ class LabelBinariser(object):
             return csr_matrix(Y)
         return Y
         
-    def logistic_reg_direct_mapping(self):
+        
+    def logistic_reg_direct_mapping(self, Y_raw = None):
         '''
-        Converts vector with two possible to vector of zeros and ones.
+        Converts vector with two possible classes to vector of zeros and ones.
 
         Returns:
         --------
@@ -95,13 +98,15 @@ class LabelBinariser(object):
         '''
         Y      = np.zeros(self.n)
         el_one = self.inverse_mapping[1]
-        Y[self.Y==el_one] = 1
+        if Y_raw is None:
+            Y_raw = self.Y
+        Y[Y_raw == el_one] = 1
         return Y
     
     
     def logistic_reg_inverse_mapping(self,Y):
         '''
-        Converts vector of zeros and ones to original format.
+        Converts probabilities to original format
         
         Parameters:
         -----------
@@ -159,7 +164,7 @@ class LabelBinariser(object):
         Returns:
         --------
         
-        Y: numpy array of size 'n x k'
+        Y: numpy array of size 'n x 1'
             Ground truth matrix , column number represents class index,
             each row has all zeros and only one 1.
             
@@ -167,6 +172,7 @@ class LabelBinariser(object):
         Y_max = np.argmax(Y, axis = 1)
         Y     = np.array([self.inverse_mapping[e] for e in Y_max])
         return Y
+        
         
 if __name__=="__main__":
     Y = np.array(["y","y","n","n","y"])
