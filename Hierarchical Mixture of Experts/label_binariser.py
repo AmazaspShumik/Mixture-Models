@@ -172,15 +172,5 @@ class LabelBinariser(object):
         Y_max = np.argmax(Y, axis = 1)
         Y     = np.array([self.inverse_mapping[e] for e in Y_max])
         return Y
-        
-        
-if __name__=="__main__":
-    Y = np.array(["y","y","n","n","y"])
-    lb = LabelBinariser(Y,2)
-    Y_lr  = lb.logistic_reg_direct_mapping()
-    print Y_lr
-    Y_hat = lb.logistic_reg_inverse_mapping(Y_lr)
-    print Y_hat
-    
-        
+
         
