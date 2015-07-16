@@ -3,13 +3,12 @@
 # THINGS TO DO
 
 # TODO: Implement function analytically computing hessian for softmax regression 
-#       without overparametrisation
+#       without overparametrisation (for newton-cg)
 # 
 
 
 import numpy as np
 from scipy.optimize import fmin_l_bfgs_b
-import label_binariser as lb
 from scipy.misc import logsumexp
 
 
@@ -46,7 +45,7 @@ def log_softmax(Theta,X):
 
 
     
-def cost_grad(Theta,Y,X,k,weights,  bias_term = True):
+def cost_grad(Theta,Y,X,k,weights):
     '''
     Calculates negative log likelihood and gradient of negative log likelihood of multinomial
     distribution together. Reusing intermediate values created in process of likelihood
@@ -85,7 +84,8 @@ def cost_grad(Theta,Y,X,k,weights,  bias_term = True):
     X_w                   =  X*np.outer(weights, np.ones(m))
     grad                  =  -1.0*np.dot(X_w.T,resid)
     grad                  =  grad[:,1:]
-    # use no.array(np.reshape()), otherwise l_bfgs_b have strange initialisation error
+    # use no.array(np.reshape()), otherwise l_bfgs_b have strange 
+    # initialisation error for FORTRAN code
     return (cost, np.array(np.reshape(grad,(m*(k-1),))))
     
     
@@ -137,21 +137,14 @@ class SoftmaxRegression(object):
         k: int
            Number of classes in classification problem
         '''
+        self.m, self.k = m,k
         # for soft splits in beginning of training in HME make parameters smaller
         self.theta      = np.random.random([m,k])*(1e-2)
         # restrict paramters so that softmax regression will not be overparamerised
         self.theta[:,0] = np.zeros(m) 
         
-        
-    def _pre_processing_targets(self,Y,k):
-        ''' 
-        Preprocesses data, transforms from vector Y to ground truth matrix Y
-        '''
-        self.binarisator = lb.LabelBinariser(Y,k)
-        return self.binarisator.convert_vec_to_binary_matrix()
 
-        
-    def fit(self,Y_raw,X,k,weights, preprocess_input = False):
+    def fit(self,Y,X,weights):
         '''
         Fits parameters of softmax regression using l-bfgs-b optimization procedure
                 
@@ -169,21 +162,11 @@ class SoftmaxRegression(object):
             
         weights: numpy array of size 'n x 1'
             Weighting for each observation
-            
-        preprocess_input: bool
-            If true Y_raw is assumed to be vector, and is transformed into
-            ground truth matrix of zeros and ones of size 'n x k', where k is
-            number of classes
-        
-        '''
-        if preprocess_input is True:
-            Y            =  self._pre_processing_targets(Y_raw,k)
-        else:
-            Y            =  Y_raw
 
+        '''
         # initialise parameters
         n,m             = np.shape(X)
-        self.k          = k
+        k               = self.k
         
         # initiate parameters for fitting (avoids overparametarization)
         theta_initial   = np.zeros([m,k-1])
@@ -197,10 +180,10 @@ class SoftmaxRegression(object):
         
         # save recovery paramters in case log-likelihood drops due to underflow
         theta_recovery  = self.theta
-        log_like_before = self.log_likelihood(X,Y,weights,k)
+        log_like_before = self.log_likelihood(X,Y,weights)
         
         # optimisation with lbfgsb
-        fitter          = lambda theta: cost_grad(theta,Y,X,k,weights,self.stop_learning)
+        fitter          = lambda theta: cost_grad(theta,Y,X,k,weights)
         theta,J,D       = fmin_l_bfgs_b(fitter,
                                         theta_initial,
                                         fprime = None,
@@ -210,11 +193,12 @@ class SoftmaxRegression(object):
         
         # theta with dimensionality m x k-1 
         theta           = np.reshape(theta,(m,k-1))
+        
         # transform to standard softmax representattion with m x k dimensionality
         self.theta      = np.concatenate([np.zeros([m,1]), theta], axis = 1)
         
         # check behaviour of log-likelihood 
-        log_like_after = self.log_likelihood(X,Y,weights,k)
+        log_like_after = self.log_likelihood(X,Y,weights)
         delta_log_like = (log_like_after - log_like_before) / n
         
         # Code below is for two following cases:
@@ -236,6 +220,7 @@ class SoftmaxRegression(object):
         if delta_log_like < self.stop_learning:
             self.theta     = theta_recovery
             delta_log_like = 0
+            
         # save changes in likelihood and parameters
         delta = self.theta - theta_recovery
         self.delta_log_like   = delta_log_like
@@ -284,31 +269,8 @@ class SoftmaxRegression(object):
         log_P = log_softmax(self.theta,X_test)
         return log_P
         
-    
-    def predict(self,X_test):
-        '''
-        For each observation in X predicts class to which it belongs
-        This method can be used if in 'fit' method preprocess_input was True
         
-        Parameters:
-        -----------
-        
-        X: numpy array of size 'unknown x m'
-            Expalanatory variables
-            
-        Returns:
-        --------
-        
-        prediction: numpy array of size 'unknown x m'
-            Estimated target value for each observation
-            
-        '''
-        p          = self.predict_probs(X_test)
-        prediction = self.binarisator.convert_prob_matrix_to_vec(p)
-        return prediction
-        
-        
-    def log_likelihood(self,X,Y,weights,k, preprocess = False):
+    def log_likelihood(self,X,Y,weights):
         '''
         Returns log likelihood for softmax regression
         
@@ -324,9 +286,6 @@ class SoftmaxRegression(object):
         weights: numpy array of size 'n x 1'
              Weights for observations
              
-        preprocess: bool
-             If True transforms vector to ground truth matrix
-             
         Returns:
         --------
         
@@ -334,15 +293,13 @@ class SoftmaxRegression(object):
              log likelihood
         
         '''
-        if preprocess is True:
-            Y = self._pre_processing_targets(Y,k)
-        weighted_log_likelihood = -1*cost_grad(self.theta[:,1:],Y,X,k,weights,self.stop_learning)[0]
-        return weighted_log_likelihood
+        weighted_log_like = -1*cost_grad(self.theta[:,1:],Y,X,self.k,weights)[0]
+        return weighted_log_like
         
         
     def posterior_log_probs(self,X,Y):
         '''
-        Calculates probability of observing Y given X and parameters
+        Calculates probability of observing Y given X and parameters (for HME usage)
         '''
         log_p = np.sum(Y*log_softmax(self.theta,X), axis = 1)
         return log_p
