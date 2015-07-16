@@ -3,7 +3,6 @@
 import numpy as np
 from scipy.stats import multivariate_normal as mvn
 from scipy.misc import logsumexp
-import time
 
 class WeightedGaussianDiscriminantAnalysis(object):
     '''
@@ -67,9 +66,6 @@ class WeightedGaussianDiscriminantAnalysis(object):
             
         Y_raw: numpy array of size 'n x 1'
             Dependent variables that need to be approximated
-            
-        k: int
-            Number of classes
             
         weights: numpy array of size 'n x 1'
             Weighting for each observation
