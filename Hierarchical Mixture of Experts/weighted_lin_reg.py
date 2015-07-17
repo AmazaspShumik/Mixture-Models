@@ -7,8 +7,6 @@ Weighted Linear Regression , Expert in HME model
 """
 
 import numpy as np
-from scipy import linalg
-from helpers import *
 
 #------------------------------------ Least Squares Solvers-------------------------------#
 
@@ -80,13 +78,13 @@ def lstsq_wrapper(y,X):
     X: numpy array of size 'n x m'
         Explanatory variables
     '''
-    theta,r,rank,s = linalg.lstsq(X,y)
+    theta,r,rank,s = np.linalg.lstsq(X,y)
     return theta
     
     
 #----------------------------------
     
-def norm_pdf(theta,y,x,sigma_2):
+def norm_pdf_log_pdf(theta,y,x,sigma_2):
     '''
     Calculates probability of observing Y given Theta and sigma and explanatory
     varibales
@@ -103,16 +101,19 @@ def norm_pdf(theta,y,x,sigma_2):
     sigma_2: numpy array of size 'm x 1'
            Vector of variances
     
-    Output:
+    Returns:
     -------
     prob: numpy array of size 'n x 1'
           Probability of observing y given theta and X
     
     '''
-    normaliser = 1.0/np.sqrt(2*np.pi*sigma_2)
-    u          = y - np.dot(x,theta)
-    prob       = normaliser* np.exp( -0.5 * u*u / sigma_2 )
-    return prob
+    u              = y - np.dot(x,theta)
+    log_normaliser = -1* np.log(np.sqrt(2*np.pi*sigma_2))
+    log_main       = -u*u/(2*sigma_2)
+    log_pdf        = log_normaliser + log_main
+    prob           = np.exp(log_pdf)
+    return [log_pdf,prob]
+        
         
     
 #------------------------------------- Weighted Linear Regression-------------------------#
@@ -132,11 +133,13 @@ class WeightedLinearRegression(object):
          
     '''
     
-    def __init__(self, solver = "qr", underflow_tol = 1e-20):
-        self.solver        = solver
-        self.theta         = 0             
-        self.var           = 0               
-        self.underflow_tol = underflow_tol
+    def __init__(self, solver = "lapack_solver", stop_learning = 1e-3):
+        self.solver              = solver
+        self.theta               = None             
+        self.var                 = 0               
+        self.stop_learning       = stop_learning
+        self.delta_param_norm    = 0
+        self.deta_log_like       = 0
 
 
     def init_params(self,m):
@@ -153,7 +156,7 @@ class WeightedLinearRegression(object):
         self.var   = 1 
 
 
-    def fit(self,X,Y,weights):
+    def fit(self,Y,X,weights = None):
         ''' 
         Fits weighted regression, updates coefficients and variance
         
@@ -171,28 +174,53 @@ class WeightedLinearRegression(object):
         
         '''
         n,m         =  np.shape(X)
-        W           =  np.diagflat(weights)
+        if weights is not None:
+             w            =  np.sqrt(weights)
+             X_w          =  X*np.outer(w,np.ones(m))
+             Y_w          =  Y*w
+             
+        if self.theta is None:
+            self.init_params(m)
+             
+        # save paramters in case log-likelihood drops ( UNDERFLOW ISSUE IN 
+        # DEEP HIERARCHICAL MIXTURE OF EXPERTS)
+        theta_recovery  =  self.theta
+        var_recovery    =  self.var
+        log_like_before =  self.log_likelihood(X,Y,weights)
         
         # use cholesky decomposition for least squares 
-        if self.solver == "cholesky":
-           part_one    =  np.dot(np.dot(X.T,W),X)
-           part_two    =  np.dot(np.dot(X.T,W),Y)
-           self.theta  =  cholesky_solver_least_squares(part_one, part_two)
+        if self.solver  == "cholesky":
+           part_one     =  np.dot(X_w.T,X_w)
+           part_two     =  np.dot(X_w.T,Y_w)
+           self.theta   =  cholesky_solver_least_squares(part_one, part_two)
            
         # use qr decomposition for least squares
         elif self.solver == "qr":
-            X_tilda    = np.dot(X.T,np.sqrt(W)).T
-            Y_tilda    = Y*np.sqrt(weights)
-            Q,R        = np.linalg.qr(X_tilda)
-            self.theta = qr_solver(Q,R,Y_tilda)
+            Q,R        = np.linalg.qr(X_w)
+            self.theta = qr_solver(Q,R,Y_w)
             
         # lapack least squares solver
         elif self.solver == "lapack_solver":
-            self.theta = lstsq_wrapper(Y*np.sqrt(weights),np.dot(X.T,np.sqrt(W)).T)
+            self.theta = lstsq_wrapper(Y_w,X_w)
             
         # calculate variances 
-        vec_1       =  (Y - np.dot(X,self.theta))
-        self.var    =  np.dot(vec_1,np.dot(vec_1,W))/np.sum(W)
+        vec_1       =  (Y_w - np.dot(X_w,self.theta))
+        self.var    =  np.dot(vec_1,vec_1)/np.sum(weights)
+        
+        # if likelihood dropped ( UNDERFLOW ISSUE) use recovery parameters
+        # used in DEEP HIERARCHICAL MIXTURE OF EXPERTS
+        log_like_after  = self.log_likelihood(X,Y,weights)
+        delta_log_like = ( log_like_after - log_like_before)/n
+        if delta_log_like < self.stop_learning:
+            self.theta     = theta_recovery
+            self.var       = var_recovery
+            delta_log_like = 0
+            
+        # save change in parameters and likelihood
+        delta                 = self.theta - theta_recovery
+        self.delta_param_norm = np.sum(np.dot(delta.T,delta))
+        self.delta_log_like   = delta_log_like
+        
         
         
     def predict(self,X):
@@ -213,7 +241,15 @@ class WeightedLinearRegression(object):
         return np.dot(X,self.theta)
         
         
-    def log_likelihood(self,X,Y,weights):
+    def posterior_log_probs(self,X,Y):
+        ''' 
+        Wrapper for norm_pdf (primarily used in HME)
+        '''
+        log_pdf,pdf = norm_pdf_log_pdf(self.theta,Y,X,self.var)
+        return log_pdf
+        
+        
+    def log_likelihood(self,X,Y,weights = None):
         '''
         Returns log likelihood for linear regression with noise distributed 
         as Gaussian
@@ -237,11 +273,10 @@ class WeightedLinearRegression(object):
              Log likelihood
 
         '''
-        probs               = norm_pdf(self.theta,Y,X,self.var)
-        probs               = bounded_variable(probs,self.underflow_tol,1)
-        weighted_log_likelihood = np.sum(weights*np.log(probs))
-        return weighted_log_likelihood
+        if weights is None:
+            weights = np.ones(X.shape[0])
+        log_pdf, pdf        = norm_pdf_log_pdf(self.theta,Y,X,self.var)
+        log_likelihood      = np.sum(weights*log_pdf)
+        return log_likelihood
 
         
-
-
