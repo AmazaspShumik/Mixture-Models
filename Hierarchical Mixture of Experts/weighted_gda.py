@@ -112,14 +112,13 @@ class WeightedGaussianDiscriminantAnalysis(object):
 
         # calculate pooled covarince matrix
         self.cov         = np.zeros([m,m])
-        M                = np.zeros([m,n])
         cov              = np.zeros([m,m])
+        M                = np.zeros([m,n])
         for i in range(k):
             np.outer(self.means[:,i],np.ones(n), out = M)
             X_cent       = (X - M.T)
-            for j in range(m):
-                X_cent[:,j] *= Y_w[:,i]
-            np.dot(X_cent.T,X_cent, out = cov)
+            X_cent_w     = X_cent*np.outer(Y_w[:,i],np.ones(m))
+            np.dot(X_cent_w.T,X_cent, out = cov)
             self.cov    += cov
         self.cov        /= weights_total
         
@@ -234,6 +233,7 @@ class WeightedGaussianDiscriminantAnalysis(object):
         # default weights
         if weights is None:
             weights = np.ones(n)
+            
         
         # log-likelihood
         log_posterior = np.zeros([n,k])
@@ -251,6 +251,6 @@ class WeightedGaussianDiscriminantAnalysis(object):
         Probability of observing Y given X and parameters
         '''
         X = self._bias_term_pre_processing_X(X,bias_term)
-        log_P = np.sum(Y*self.predict_log_probs(X,bias_term), axis = 1)
+        log_P = np.sum(Y*self.predict_log_probs(X,bias_term = False), axis = 1)
         return log_P
         
