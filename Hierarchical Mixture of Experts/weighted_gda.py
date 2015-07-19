@@ -100,7 +100,7 @@ class WeightedGaussianDiscriminantAnalysis(object):
         mean_recovery    =  self.means
         cov_recovery     =  self.cov
         prior_recovery   =  self.log_priors
-        log_like_before  =  self.log_likelihood(X,Y_w,weights,k, weighted_Y = True, bias_term = False)
+        log_like_before  =  self.log_likelihood(X,Y_w,weights, weighted_Y = True, bias_term = False)
         
         # calculate log priors
         weighted_norm    =  np.sum(Y_w, axis = 0) 
@@ -125,7 +125,7 @@ class WeightedGaussianDiscriminantAnalysis(object):
         # check that log-likelihood did not dropped (UNDERFLOW IN DEEP HMEs)
         # or incresed by very little (for preventing overfitting and long iteration
         # cycle
-        log_like_after      =  self.log_likelihood(X,Y_w,weights,k,bias_term = False, weighted_Y = True)
+        log_like_after      =  self.log_likelihood(X,Y_w,weights,bias_term = False, weighted_Y = True)
         delta_log_like      = (log_like_after - log_like_before )/n
         if delta_log_like < self.stop_learning:
             self.means      = mean_recovery
@@ -196,7 +196,7 @@ class WeightedGaussianDiscriminantAnalysis(object):
         return posterior_log_prob
                 
         
-    def log_likelihood(self, X, Y, weights = None, k=2, bias_term = None, weighted_Y = False):
+    def log_likelihood(self, X, Y, weights = None, bias_term = None, weighted_Y = False):
         '''
         Calculates log likelihood for weighted gaussian discriminant analysis
         
@@ -236,12 +236,12 @@ class WeightedGaussianDiscriminantAnalysis(object):
             
         
         # log-likelihood
-        log_posterior = np.zeros([n,k])
-        for i in range(k):
+        log_posterior = np.zeros([n,self.k])
+        for i in range(self.k):
             log_posterior[:,i]  = mvn.logpdf(X,self.means[:,i], cov = self.cov)
             log_posterior[:,i] += self.log_priors[i]
         if weighted_Y is False:
-           Y             = Y*np.outer(weights, np.ones(k))
+           Y             = Y*np.outer(weights, np.ones(self.k))
         log_like        = np.sum(Y*log_posterior)
         return log_like
         
