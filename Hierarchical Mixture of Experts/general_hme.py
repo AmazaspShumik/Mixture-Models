@@ -82,12 +82,12 @@ class HME(object):
         # check that there is no errors in gate and expert type
         expert_types      = ["gaussian","softmax","wgda"]
         gater_types       = ["softmax","wgda"]
-#        assert expert_type in expert_types, 'wrong model type for expert node'
-#        assert gate_type   in gater_types,  'wrong model type for gater node'
         if expert_type not in expert_types:
             raise NodeModelNotImplementedError(expert_type, "expert")
         if gate_type not in gater_types:
             raise NodeModelNotImplementedError(gate_type, "gater")
+        
+        # assign expert and gate types
         self.expert_type  = expert_type
         self.gate_type    = gate_type
         
@@ -98,6 +98,7 @@ class HME(object):
             Y_train        = self.converter.convert_vec_to_binary_matrix(Y_raw = Y_train)
             Y_test         = self.converter.convert_vec_to_binary_matrix(Y_raw = Y_test)
             
+        # split data into training and test
         self.X             = X_train
         self.Y             = Y_train
         self.x             = X_test
@@ -198,7 +199,8 @@ class HME(object):
     def _down_tree_pass(self):
         ''' 
         Performs down tree pass, calculates posterior probabilities of 
-        latent variables and maximises lower bound of likelihood by updating parameters
+        latent variables (E-step) and maximises lower bound of likelihood by 
+        updating parameters (M-step)
         '''
         delta_param_norm = 0
         delta_log_like   = 0
@@ -257,13 +259,17 @@ class HME(object):
            If True, then columns of ones is appended to matrix X as last column
            
         predict_type: str
-           Can be mean "predict_response", "predict_prob", "predict_cdf"
+           Can be  "predict_response", "predict_prob", "predict_cdf"
            "predict_response"   - works for all type of experts 
            "predict_prob"       - works for classification experts ('wgda','softmax')
            "prdict_cdf"         - works only for 'gaussian' expert
            
+        y_lo: numpy array of size 'unknown x 1'
+            Lower bound for 'predict_cdf' prediction type
+            
+        y_hi: numpy array of size 'unknown x 1'
+            Upper bound for 'predict_cdf' prediction type
         
-           
         Returns:
         --------
         prediction: numpy array of size 'unknown x 1'
@@ -273,8 +279,6 @@ class HME(object):
         if self.bias is True:
             n = np.shape(X)[0]
             X = np.concatenate([X,np.ones([n,1])], axis = 1)
-            
-        # tree traversal for finidng predicted value
             
         # for classification cases use probability predictions (they will be 
         # transformed into response variable later)
@@ -288,12 +292,12 @@ class HME(object):
         # predict_cdf is defined only for 'gaussian' expert
         elif self.expert_type != "gaussian" and predict_type == "predict_cdf":
             raise NotImplementedError(" 'predict_cdf' is implemented only for 'gaussian' expert")
-            
         else:
             prediction = self.nodes[0].propagate_prediction(X,self.nodes,predict_type,y_lo,y_hi)
             
         # post processing (transform average probabilities to response variable)
         if self.expert_type in ["softmax" ,"wgda"] and predict_type == "means":
             return self.converter.convert_prob_matrix_to_vec(prediction)
+            
         return prediction
               
