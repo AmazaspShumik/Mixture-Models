@@ -4,12 +4,15 @@ import numpy as np
 import abc
 import weighted_lin_reg as wlr
 import softmax_reg as sr
-import logistic_reg as lr
+import weighted_gda as wgda
+from scipy.misc import logsumexp
+from helpers import *
+
+
+########################################## Abstarct Base Node Class ######################################################
 
 
 
-
-#----------------------------------------- Abstract Base Node Class ----------------------------------------------#
 
 class Node(object):
     __metaclass__ = abc.ABCMeta
@@ -31,9 +34,16 @@ class Node(object):
     m: int
         Dimensionality of input data
         
+    bias: bool
+        True if X contains bias term
+        
     underflow_tol: float
-        Samllest value probability can take when calculating responsibilities,
+        Smallest value probability can take when calculating responsibilities,
         prevents underflow
+        
+    stop_learning: float
+        Does not allow expert or gater model to learn if change in likelihood 
+        is small
         
     max_iter: int
         Number of iterations before convergence (for softmax regression in gates)
@@ -41,44 +51,59 @@ class Node(object):
     conv_threshold: float
         Convergence parameter (for softmax regression in gates)
         
+    stop_learning_softmax: float
+        If change in weighted log_likelihood of softmax is smaller than threshold
+        
     '''
     
-    def __init__(self,n,node_position,k,m,underflow_tol = 1e-10,max_iter = 50, conv_threshold = 1e-5):
-        self.weights           = np.ones(n)
-        self.node_position     = node_position
-        self.k                 = k
-        self.underflow_tol     = underflow_tol
-        self.m                 = m
-        self.max_iter          = max_iter
-        self.conv_threshold    = conv_threshold
-        self.n                 = n
-        # lower bound of log-likelihood
-        self.log_likelihood_lb = 0
+    def __init__(self,n,node_position,k,m, bias_term = True,    underflow_tol            = 1e-10,
+                                                                classes                  = 2,
+                                                                max_iter                 = 100, 
+                                                                conv_threshold           = 1e-10,
+                                                                stop_learning_softmax    = 1e-10,
+                                                                stop_learning_regression = 1e-20,
+                                                                stop_learning_wgda       = 1e-20): 
+        self.weights            = np.zeros(n, dtype = np.float64)
+        self.bound_weights      = np.zeros(n, dtype = np.float64)
+        self.node_position      = node_position
+        self.k                  = k
+        self.underflow_tol      = underflow_tol
+        self.m                  = m
+        self.bias               = bias_term
+        self.max_iter           = max_iter
+        self.conv_threshold     = conv_threshold
+        self.n                  = n
+        # log-likelihood
+        self.log_like_test      = 0
+        self.stop_learning_sr   = stop_learning_softmax
+        self.stop_learning_wlr  = stop_learning_regression
+        self.stop_learning_wgda = stop_learning_wgda
+        self.classes            = classes
         
         
     @abc.abstractmethod
     def _m_step_update(self):
-        raise NotImplementedError
+        pass
         
         
     @abc.abstractmethod
     def up_tree_pass(self):
-        raise NotImplementedError
+        pass
         
         
     @abc.abstractmethod
     def down_tree_pass(self):
-        raise NotImplementedError
+        pass
         
         
     @abc.abstractmethod
     def _prior(self):
-        raise NotImplementedError
+        pass
         
         
     @abc.abstractmethod
-    def propagate_mean_prediction(self):
-        raise NotImplementedError
+    def propagate_prediction(self):
+        pass
         
         
     def get_childrens(self,nodes):
@@ -126,51 +151,78 @@ class Node(object):
         if parent_index < 0:
             raise NodeNotFoundError(self.node_position,self.node_type,"does not have parent")
         birth_order       =  (self.node_position - 1) % self.k
-        parent       =  nodes[parent_index]
+        parent            =  nodes[parent_index]
         return [parent, birth_order]
         
         
     def has_parent(self):
         '''
-        Returns True if node has children, False if otherwise
+        Returns True if node has parent, False if otherwise
         '''
         if self.node_position == 0:
             return False
         return True
         
         
-############################################### Gate Node ######################################################
-
+    def get_delta_param_norm(self):
+        ''' L2 norm of change in parameters of gate model'''
+        return self.model.delta_param_norm
         
         
-class GaterNode(Node):
-    '''
-    Gate node of Hierarchical Mixture of Experts.
-    Calculates responsibilities and updates parmameters using weighted softmax regression.
-    '''
+    def get_delta_log_like(self):
+        ''' Returns change in likelihood on m-step'''
+        return self.model.delta_log_like
+        
+        
     
+############################################### Gate Node ################################################################
+
+
+#----------------------------------------- Abstarct Gater Class ---------------------------------------------------------#
+
+
+
+class AbstractGaterNode(Node):
+    '''
+    Abstract gate node class
+    '''
     
     def __init__(self,*args,**kwargs):
-        ''' Initialises gate node '''
-        super(GaterNode,self).__init__(*args,**kwargs)
-        self.gater = sr.SoftmaxRegression(self.conv_threshold, self.max_iter)
-        self.gater.init_params(self.m,self.k)
-        self.responsibilities = np.ones([self.n,self.k])
-        self.normaliser       = np.ones(self.n)
+        super(AbstractGaterNode,self).__init__(*args,**kwargs)
+        self.responsibilities = np.zeros([self.n,self.k])
+        self.normaliser       = np.zeros(self.n)
         self.node_type        = "gate"
-        
-        
-    def _m_step_update(self,H,X):
-        ''' Updates parameters running weighted softmax regression '''
-        self.gater.fit_matrix_output(H,X,self.weights) 
-        
+
     
-    def _prior(self,X):
-        '''Calculates  prior probabilities for latent variables'''
-        self.responsibilities = bounded_variable(sr.softmax(self.gater.theta,X),
-                                                 self.underflow_tol,
-                                                 1)
+    def down_tree_pass(self,X,nodes):
+        '''
+        Calculates responsibilities and performs weighted maximum 
+        likelihood estimation
         
+        Parameters:
+        -----------
+        
+        X: numpy array of size 'n x m'
+            Explanatory variables
+            
+        nodes: list of size equal number of nodes in HME
+             List with all nodes of HME
+             
+        '''
+        # E-step of EM algorithm
+        if self.has_parent() is True:
+            parent,birth_order                   = self.get_parent_and_birth_order(nodes)
+            self.weights                         = parent.responsibilities[:,birth_order] - parent.normaliser
+            self.weights                        += parent.weights
+        log_H = self.responsibilities - np.outer(self.normaliser, np.ones(self.k))
+        H     = np.exp(log_H)
+        
+        # bound weights to prevent underflow in weighted regression
+        self.bound_weights =  bounded_variable(np.exp(self.weights),self.underflow_tol)
+        
+        # M-step of EM algorithm
+        self._m_step_update(H,X)
+
         
     def up_tree_pass(self,X,nodes):
         '''
@@ -188,53 +240,27 @@ class GaterNode(Node):
              List with all nodes of HME
              
         '''
-        # calculate likelihood
-        old_responsibilities   = self.responsibilities / np.outer(self.normaliser, np.ones(self.k))
-        old_responsibilities   = bounded_variable(old_responsibilities,
-                                                  self.underflow_tol,
-                                                  1)
-        weighting              = self.weights
         self._prior(X)
-        lb                     = np.sum(old_responsibilities*np.log(self.responsibilities), axis = 1)
-        self.log_likelihood_lb = np.sum(weighting * lb)
         children = self.get_childrens(nodes)
-        # all children should be of the same type
+        
+        # check that all children are of the same type
         if len(set([e.node_type for e in children])) != 1:
                raise ValueError("Children nodes should have the same node type")
+               
+        # prior probabilities calculation
         for i,child_node in enumerate(children):
             if child_node.node_type == "expert":
-               self.responsibilities[:,i] *= child_node.weights
+               self.responsibilities[:,i] += child_node.weights
             elif child_node.node_type == "gate":
-               self.responsibilities[:,i] *= np.sum(child_node.responsibilities, axis = 1)
+               self.responsibilities[:,i] += logsumexp(child_node.responsibilities, axis = 1)
             else:
                 raise TypeError("Unidentified node type")
-        self.normaliser         = np.sum(self.responsibilities, axis = 1)
-        
-        
-    def down_tree_pass(self,X,nodes):
-        '''
-        Calculates responsibilities and performs weighted maximum 
-        likelihood estimation
-        
-        Parameters:
-        -----------
-        
-        X: numpy array of size 'n x m'
-            Explanatory variables
-            
-        nodes: list of size equal number of nodes in HME
-             List with all nodes of HME
-             
-        '''
-        if self.has_parent() is True:
-            parent,birth_order = self.get_parent_and_birth_order(nodes)
-            self.weights       = parent.weights*parent.responsibilities[:,birth_order]/parent.normaliser
-        H = self.responsibilities / np.outer(self.normaliser, np.ones(self.k))
-        self._m_step_update(H,X)
-        
-        
-        
-    def propagate_mean_prediction(self,X,nodes):
+                
+        #prevent underflow
+        self.normaliser         = logsumexp(self.responsibilities, axis = 1)
+    
+    
+    def propagate_prediction(self,X,nodes,predict_type = "predict_response", y_lo=None, y_hi=None):
         '''
         Returns weighted mean of predictions in experts which are in subtree
         
@@ -247,39 +273,94 @@ class GaterNode(Node):
         nodes: list of size equal number of nodes in HME
              List with all nodes of HME
              
+        predict_type: str
+             Can be "predict_response", "predict_prob", "predict_cdf"
+             "predict_resposne"   - works for all type of experts 
+             "predict_prob"       - works for classification experts ('wgda','softmax')
+             "predict_cdf"        - works only for 'gaussian' expert
+            
         Returns:
         --------
         
         mean_prediction: numpy array of size 'unknown x m'
              Weighted prediction
-
         '''
         self._prior(X)
         children        = self.get_childrens(nodes)
         n,m             = np.shape(X)
-        mean_prediction = np.zeros(n)
+        mean_prediction = None
         for i,child in enumerate(children):
-            mean_prediction += (self.responsibilities[:,i] * child.propagate_mean_prediction(X,nodes))
+            w                   = np.exp(self.responsibilities[:,i])
+            children_average    = child.propagate_prediction(X,nodes,predict_type,y_lo,y_hi)
+            if len(children_average.shape) > 1:
+                k                = children_average.shape[1]
+                w                = np.outer(w,np.ones(k))
+            if mean_prediction is None:
+                mean_prediction  = (w * children_average)
+            else:
+                mean_prediction += (w * children_average)
         return mean_prediction
         
+
+    def _m_step_update(self,H,X):
+        ''' Updates parameters running weighted softmax regression '''
+        self.model.fit(H,X,self.bound_weights)
         
+    
+    def _prior(self,X):
+        '''Calculates  prior probabilities for latent variables'''
+        probs = self.model.predict_log_probs(X)
+        self.responsibilities = probs
+        
+        
+#----------------------------------------- implementations of Gaters ---------------------------------------------#
+    
+        
+class GaterNodeSoftmax(AbstractGaterNode):
+    '''
+    Gate node of Hierarchical Mixture of Experts with softmax transfer function.
+    Calculates responsibilities and updates parmameters using weighted softmax regression.
+    '''
+    
+    def __init__(self,*args,**kwargs):
+        ''' Initialises gate node '''
+        super(GaterNodeSoftmax,self).__init__(*args,**kwargs)
+        self.model = sr.SoftmaxRegression(self.conv_threshold, self.max_iter,self.stop_learning_sr)
+        self.model.init_params(self.m,self.k)
+        
+        
+class GaterNodeWGDA(AbstractGaterNode):
+    '''
+    Gate node of Hierarchical Mixture of Experts with weighted gaussian discriminant
+    analysis as gating model. Calculates responsibilities and updates parameters 
+    of gating model.
+    '''
+    
+    def __init__(self,*args,**kwargs):
+        ''' Initialises gate node '''
+        super(GaterNodeWGDA,self).__init__(*args,**kwargs)
+        self.model = wgda.WeightedGaussianDiscriminantAnalysis(bias_term     = self.bias, 
+                                                               stop_learning = self.stop_learning_wgda)
+        if self.bias is True:
+            self.model.init_params(self.m-1,self.k)
+        else:
+            self.model.init_params(self.m,self.k)
+
+
+ 
+################################################## Expert Nodes ##########################################################
+ 
+ 
+#----------------------------------------- Abstarct Expert Class ---------------------------------------------------------#
       
-############################################## Expert Nodes #####################################################
       
       
 class ExpertNodeAbstract(Node):
     '''
-    Abstract Base Class for experts (linear, poisson, logistic etc. regressions) 
+    Abstract Base Class for experts (linear, logistic etc. regressions) 
     '''
-    
-    
-    def _m_step_update(self,X,Y):
-        ''' Updates parameters of linear regression (coefficient and estimates of variance) '''
-        # parameters are updated and saved in expert
-        self.expert.fit(X,Y,self.weights)
-        
-        
-    def down_tree_pass(self,X,Y, nodes):
+
+    def down_tree_pass(self,X,Y,nodes):
         '''
         Calculates responsibilities and performs weighted maximum likelihood
         estimation.
@@ -297,16 +378,38 @@ class ExpertNodeAbstract(Node):
              List with all nodes of HME
              
         '''
+        # E-step of EM algorithm
         parent, birth_order = self.get_parent_and_birth_order(nodes)
-        self.weights        = parent.weights * parent.responsibilities[:,birth_order]
-        self.weights       /= parent.normaliser
-        self.weights        = bounded_variable(self.weights,
-                                               self.underflow_tol,
-                                               1)
+        
+        self.weights           =  parent.responsibilities[:,birth_order] - parent.normaliser
+        self.weights          += parent.weights 
+        
+        # prevent underflow in weighted regressions
+        self.bound_weights = bounded_variable(np.exp(self.weights),self.underflow_tol)
+        
+        # M-step of EM algorithm
         self._m_step_update(X,Y)
+
+       
+    def up_tree_pass(self,X,Y):
+        '''
+        Calculates prior probability of latent variables corresponding to 
+        expert at node and likelihood. 
         
+        Parameters:
+        -----------
         
-    def propagate_mean_prediction(self,X,nodes):
+        X: numpy array of size 'n x m'
+            Explanatory variables
+            
+        Y: numpy array of size 'n x 1'
+             Target variable that should be approximated
+             
+        '''
+        self._prior(X,Y)
+        
+                
+    def propagate_prediction(self,X,nodes, predict_type = "mean",y_lo=None,y_hi=None):
         '''
         Returns prediction of expert for test input X
         
@@ -319,19 +422,46 @@ class ExpertNodeAbstract(Node):
         nodes: list of size equal number of nodes in HME
              List with all nodes of HME
              
+        predict_type: str
+             Can be "predict_response", "predict_prob", "predict_cdf"
+             "predict_resposne"   - works for all type of experts 
+             "predict_prob"       - works for classification experts ('wgda','softmax')
+             "predict_cdf"        - works only for 'gaussian' expert
+             
         Returns:
         --------
         : numpy array of size 'unknown x m'
              Weighted prediction
         
         '''
-        return self.expert.predict(X)
+        if predict_type == "predict_probs":
+            return self.model.predict_probs(X)
+        elif predict_type == "predict_response":
+            return self.model.predict(X)
+        elif predict_type == "predict_cdf":
+            return self.model.posterior_cdf(X,y_lo,y_hi)
+        else:
+            raise NotImplementedError("Not implemented prediction type")
         
         
+    def propagate_log_probs(self,X,Y):
+        ''' Returns probability of observing Y given X and parameters'''
+        return self.model.posterior_log_probs(X,Y)
+     
+         
+    def _prior(self,X,Y):
+        ''' Calculates probability of observing Y given X and parameters of regression '''
+        self.weights = self.model.posterior_log_probs(X,Y)
+        
+
+    def _m_step_update(self,X,Y):
+        ''' Updates parameters of linear regression (coefficient and estimates of variance) '''
+        # parameters are updated and saved in expert 
+        self.model.fit(Y,X,self.bound_weights)
 
         
         
-#-------------------------------------- Linear Regression Expert Node --------------------------------------------
+#-------------------------------------- Implementation of Expert Nodes --------------------------------------------------#
 
         
 class ExpertNodeLinReg(ExpertNodeAbstract):
@@ -343,137 +473,40 @@ class ExpertNodeLinReg(ExpertNodeAbstract):
     def __init__(self,*args,**kwargs):
         ''' Initialise linear regression expert node '''
         super(ExpertNodeLinReg,self).__init__(*args,**kwargs)
-        self.expert = wlr.WeightedLinearRegression()
-        self.expert.init_params(self.m)
+        self.model = wlr.WeightedLinearRegression(stop_learning = self.stop_learning_wlr)
+        self.model.init_params(self.m)
         self.node_type = "expert"
-
-        
-    def _prior(self,X,Y):
-        ''' Calculates probability of observing Y given X and parameters of regression '''
-        self.weights = wlr.norm_pdf(self.expert.theta,Y,X,self.expert.var)
-        self.weights = bounded_variable(self.weights,self.underflow_tol, 1)
-        
-        
-    def up_tree_pass(self,X,Y):
-        '''
-        Calculates prior probability of latent variables corresponding to 
-        expert at node and likelihood. 
-        
-        Parameters:
-        -----------
-        
-        X: numpy array of size 'n x m'
-            Explanatory variables
-            
-        Y: numpy array of size 'n x 1'
-             Target variable that should be approximated
-             
-        '''
-        resps = self.weights
-        self._prior(X,Y)
-        # calculate lower bound for log-likelihood
-        self.log_likelihood_lb = np.sum(resps*np.log(self.weights))
-        
-
-        
-        
-
-#-------------------------------------- Logistic Regression Expert Node --------------------------------------------
         
     
-class ExpertNodeLogisticReg(ExpertNodeAbstract):
-    
+class ExpertNodeSoftmaxReg(ExpertNodeAbstract):
+    '''
+    Expert Node with Softmax model as an expert
+    '''
+
     def __init__(self,*args, **kwargs):
-        super(ExpertNodeLogisticReg,self).__init__(*args,**kwargs)
-        self.expert = lr.LogisticRegression( p_tol = self.conv_threshold, 
-                                             max_iter = self.max_iter)
-        self.expert.init_params(self.m)
+        super(ExpertNodeSoftmaxReg,self).__init__(*args,**kwargs)
+        self.model = sr.SoftmaxRegression( tolerance       = self.conv_threshold, 
+                                             max_iter      = self.max_iter,
+                                             stop_learning = self.stop_learning_sr)
+        self.model.init_params(self.m, self.classes)
         self.node_type = "expert"
+               
         
         
-    def _prior(self,X,Y):
-        ''' Calculates probability of observing Y given X and parameters of regression '''
-        self.weights = lr.logistic_pdf(self.expert.theta,Y,X)
-        self.weights = bounded_variable(self.weights,self.underflow_tol, 1)
-       
-       
-    def propagate_mean_prediction(self,X,nodes):
-        ''' Predicts probability of belonging '''
-        return self.expert.predict_probs(X)
-        
-        
-    def up_tree_pass(self,X,Y):
-        '''
-        Calculates prior probability of latent variables corresponding to 
-        expert at node and likelihood. 
-        
-        Parameters:
-        -----------
-        
-        X: numpy array of size 'n x m'
-            Explanatory variables
-            
-        Y: numpy array of size 'n x 1'
-             Target variable that should be approximated
-             
-        '''
-        resps = self.weights
-        self._prior(X,Y)
-        # calculate lower bound for log-likelihood
-        logistic_cost = Y*np.log(self.weights)
-        self.log_likelihood_lb = np.sum(resps*logistic_cost)
-        
-    
-        
-        
-#----------------------------------------- Helper Methods & Classes ----------------------------------------------#
-        
-        
-def bounded_variable(x,lo,hi):
+class ExpertNodeWGDA(ExpertNodeAbstract):
     '''
-    Bounds variable from below and above, prevents underflow and overflow
-    
-    Parameters:
-    -----------
-    
-    x: numpy array of size 'n x k' (k can be 1)
-       input vector
-       
-    hi: float
-       Upper bound
-       
-    lo: float
-       Lower bound
-       
-    Returns:
-    --------
-    : numpy array of size 'n x k'
-       
+    Expert Node with Gaussian Discriminant Analysis as an expert
     '''
-    def _bounded_vector(z,lo,hi):
-        z[ z > hi] = hi
-        z[ z < lo] = lo
-        return z
-    if len(np.shape(x)) > 1:
-        for i in range(np.shape(x)[1]):
-            x[:,i] = _bounded_vector(x[:,i],lo,hi)
-        return x
-    return _bounded_vector(x,lo,hi)
     
-    
+    def __init__(self,*args,**kwargs):
+        super(ExpertNodeWGDA,self).__init__(*args,**kwargs)
+        self.model = wgda.WeightedGaussianDiscriminantAnalysis(stop_learning = self.stop_learning_wgda,
+                                                               bias_term     = self.bias)
+        if self.bias is True:
+            self.model.init_params(self.m-1,self.classes)
+        else:
+            self.model.init_params(self.m,self.classes)
+        self.node_type ="expert"
+        
+        
 
-class NodeNotFoundError(Exception):
-    '''
-    Error raised in case node is not found
-    '''
-    
-    def __init__(self,node_position, node_type, message):
-        self.np = node_position
-        self.nt = node_type
-        self.m  = message
-        
-    def __str__(self):
-        return " ".join(["Node with index ",str(self.np)," of type ",str(self.nt),self.m])
-
-        
-        

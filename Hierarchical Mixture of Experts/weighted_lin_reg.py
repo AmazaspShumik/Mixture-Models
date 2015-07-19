@@ -7,6 +7,7 @@ Weighted Linear Regression , Expert in HME model
 """
 
 import numpy as np
+from scipy.stats import norm
 
 #------------------------------------ Least Squares Solvers-------------------------------#
 
@@ -278,5 +279,39 @@ class WeightedLinearRegression(object):
         log_pdf, pdf        = norm_pdf_log_pdf(self.theta,Y,X,self.var)
         log_likelihood      = np.sum(weights*log_pdf)
         return log_likelihood
+        
+        
+    def posterior_cdf(self,X,y_lo,y_hi):
+        ''' 
+        Calculate probability of observing target variable in range [y_lo, y_hi]
+        given explanatory variable and parameters
+        
+        Parameters:
+        -----------
+        
+        X: numpy array of size 'unknown x n'
+           Explanatory variables
+           
+        y_lo: numpy array of size 'unknown x 1'
+           Lower bound 
+           
+        y_hi: numpy array of size 'unknown x 1'
+           Upper bound
+           
+        Returns:
+        --------
+        
+        delta_prob: numpy array of size 'unknown x 1'
+            Probability of observing Y in range [y_lo, y_hi]
+        '''
+        # check that upper bound is higher than lower bound
+        assert np.sum(y_hi<y_lo) == 0, "upper bound can not be smaller than lower bound"
+        # calculate difference in cdfs
+        means       = self.predict(X)
+        std         = np.sqrt(self.var)
+        upper_bound = norm.cdf(y_hi,loc = means, scale = std)
+        lower_bound = norm.cdf(y_lo, loc = means, scale = std)
+        delta_prob  = upper_bound - lower_bound
+        return delta_prob
 
         

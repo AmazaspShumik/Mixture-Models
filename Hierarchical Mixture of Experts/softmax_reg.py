@@ -100,7 +100,10 @@ class SoftmaxRegression(object):
     '''
     Softmax classifier using l-bfgs-b optimization procedure.
     (Bias term is not added in the process of computation, so  it needs to be in
-    data matrix)
+    data matrix). This implementation of softmax regression does not suffer from
+    overparametrization (so it has unique soltuion), however in case of complete 
+    separability will have the same problem as logistic regression (norm of coefficient 
+    going to infinity, we)
 
     Parameters:
     -----------
@@ -111,12 +114,14 @@ class SoftmaxRegression(object):
     tolerance: float 
                 Precision threshold for convergence (default = 1e-10)
                 
-    underflow_tol: float (default: 1e-20)
-                Threshold for preventing underflow
+    stop_learning: float (default: 1e-5)
+                If change in weighted log-likelihood is below stop_learning
+                threshold then new parameters are discarded and model in hme will
+                use old ones
                 
     '''
     
-    def __init__(self,tolerance = 1e-5, max_iter = 20, stop_learning = 1e-3):
+    def __init__(self,tolerance = 1e-5, max_iter = 20, stop_learning = 1e-5):
         self.tolerance              = tolerance
         self.max_iter               = max_iter
         self.stop_learning          = stop_learning
@@ -139,9 +144,9 @@ class SoftmaxRegression(object):
         '''
         self.m, self.k = m,k
         # for soft splits in beginning of training in HME make parameters smaller
-        self.theta      = np.random.random([m,k])*(1e-2)
+        self.theta      = np.random.random([m,k])*0.1
         # restrict paramters so that softmax regression will not be overparamerised
-        self.theta[:,0] = np.zeros(m) 
+        self.theta[:,0] = np.zeros(m)
         
 
     def fit(self,Y,X,weights):
@@ -303,3 +308,21 @@ class SoftmaxRegression(object):
         '''
         log_p = np.sum(Y*log_softmax(self.theta,X), axis = 1)
         return log_p
+
+        
+if __name__ == "__main__":
+    X      = np.ones([30000,3]) 
+    X[:,0] = np.random.normal(0,1,30000)
+    X[:,1] = np.random.normal(0,1,30000)
+    X[10000:20000,0:2] = X[10000:20000,0:2]+10
+    X[20000:30000,0:2] = X[20000:30000,0:2]+15
+    Y = np.zeros([30000,3])
+    Y[10000:20000,0] = 1
+    Y[0:10000,1] = 1
+    Y[20000:30000,2] = 1
+    sr = SoftmaxRegression()
+    sr.init_params(3,3)
+    weights = np.ones(30000)/3
+    sr.fit(Y,X,weights)
+    Y_hat = sr.predict_probs(X)
+    
