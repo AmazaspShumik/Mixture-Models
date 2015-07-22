@@ -216,8 +216,8 @@ class SoftmaxRegression(object):
         #         If that happens then model uses old parameters instead of new
         #
         # CASE 2:  
-        #         If version of softmax regression is not overparameterised then it
-        #         suffers from the same drawback as logistic regression, in case of perfect
+        #         Softmax regression suffers from the same
+        #         drawback as logistic regression, in case of perfect
         #         or near perfect separability norm of parameters keep increasing ( basically
         #         multiplying optimal w by constant). In that case change in parameters does 
         #         not decrease, while change in log-likelihood is tiny.
