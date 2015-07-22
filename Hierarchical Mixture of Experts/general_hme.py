@@ -7,6 +7,8 @@ from helpers import *
 
 
 
+
+
 class HME(object):
     '''
     Implementation of Hierarchical Mixture of Experts, supports only balanced tree 
@@ -300,4 +302,55 @@ class HME(object):
             return self.converter.convert_prob_matrix_to_vec(prediction)
             
         return prediction
+        
+        
+        
+#------------------------------ Grid contruction--------------------------------------#
+        
+def prob_grid(hme,X,y_lo,y_hi,n_steps, posterior_type = "pdf"):
+    '''
+    Calculates probability of observing values of y in grid given parameters of
+    hme model and matrix of dependent variables. If posterior_type is set to 'cdf'
+    outputs cumulative probabilities.
+    
+    Parameters:
+    -----------
+    
+    hme: reference to instance of HME class
+        Fitted HME model
+        
+    X:  numpy array of size 'unknown x m'
+        Explanatory variables
+        
+    y_lo: numpy array of size 'unknown x m' (should have the same number of rows as X)
+        Lower bound
+        
+    y_hi: numpy array of size 'unknown x m' (should have the same number of rows as X)
+        Lower bound
+        
+    posrerior_type:  str
+        Can be 'pdf' or 'cdf'. If 'pdf' will give probability of being in each
+        square of grid, otherwise return cumulative probabilities
+    
+    '''
+    n,m    = np.shape(X)
+    x_grid = np.outer(X[:,0], np.ones(n_steps-1))
+    y_grid = np.zeros([n,n_steps-1])
+    P_grid = np.zeros([n,n_steps-1])
+    step   = (y_hi-y_lo)/n_steps
+    y_hi_i = y_lo + step
+    for i in range(1,n_steps-1):
+        if posterior_type == "pdf":
+            P_grid[:,i]  = hme.predict(X,predict_type = "predict_cdf",y_lo = y_lo ,y_hi = y_hi_i)
+        elif posterior_type == "cdf":
+            P_grid[:,i]  = hme.predict(X,predict_type = "predict_cdf",y_lo = None ,y_hi = y_hi_i)
+        y_grid[:,i]  = y_lo + (y_hi_i - y_lo)/2
+        y_hi_i      += step
+        y_lo        += step
+    return [x_grid,y_grid,P_grid]
+        
+        
+        
+        
+
               
