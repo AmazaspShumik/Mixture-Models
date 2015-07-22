@@ -281,7 +281,7 @@ class WeightedLinearRegression(object):
         return log_likelihood
         
         
-    def posterior_cdf(self,X,y_lo,y_hi):
+    def posterior_cdf(self,X,y_lo = None,y_hi = None):
         ''' 
         Calculate probability of observing target variable in range [y_lo, y_hi]
         given explanatory variable and parameters
@@ -309,9 +309,13 @@ class WeightedLinearRegression(object):
         # calculate difference in cdfs
         means       = self.predict(X)
         std         = np.sqrt(self.var)
-        upper_bound = norm.cdf(y_hi,loc = means, scale = std)
-        lower_bound = norm.cdf(y_lo, loc = means, scale = std)
-        delta_prob  = upper_bound - lower_bound
+        upper_bound = 0
+        lower_bound = 0
+        if y_hi is not None:
+           upper_bound = norm.cdf(y_hi,loc = means, scale = std)
+        if y_lo is not None:
+           lower_bound = norm.cdf(y_lo, loc = means, scale = std)
+        delta_prob  = abs(upper_bound - lower_bound)
         return delta_prob
 
         
