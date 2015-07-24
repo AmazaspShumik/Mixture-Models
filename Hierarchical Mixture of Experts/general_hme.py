@@ -262,9 +262,9 @@ class HME(object):
            
         predict_type: str
            Can be  "predict_response", "predict_prob", "predict_cdf"
-           "predict_response"   - works for all type of experts 
-           "predict_prob"       - works for classification experts ('wgda','softmax')
-           "prdict_cdf"         - works only for 'gaussian' expert
+           "predict_response"    - works for all type of experts 
+           "predict_probs"       - works for classification experts ('wgda','softmax')
+           "prdict_cdf"          - works only for 'gaussian' expert
            
         y_lo: numpy array of size 'unknown x 1'
             Lower bound for 'predict_cdf' prediction type
