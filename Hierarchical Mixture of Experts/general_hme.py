@@ -298,7 +298,7 @@ class HME(object):
             prediction = self.nodes[0].propagate_prediction(X,self.nodes,predict_type,y_lo,y_hi)
             
         # post processing (transform average probabilities to response variable)
-        if self.expert_type in ["softmax" ,"wgda"] and predict_type == "means":
+        if self.expert_type in ["softmax" ,"wgda"] and predict_type == "predict_response":
             return self.converter.convert_prob_matrix_to_vec(prediction)
             
         return prediction
