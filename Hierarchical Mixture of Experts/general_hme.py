@@ -68,7 +68,7 @@ class HME(object):
                                                                   branching   = 2,
                                                                   levels      = 8, 
                                                                   max_iter    = 100,
-                                                                  conv_thresh = 1e-20,
+                                                                  conv_thresh = 1e-50,
                                                                   verbose     = False):
         self.nodes        = []
         self.bias         = bias
@@ -206,6 +206,7 @@ class HME(object):
         '''
         delta_param_norm = 0
         delta_log_like   = 0
+        N                = len(self.nodes)
         for node in self.nodes:
             if node.node_type == "expert":
                 node.down_tree_pass(self.X,self.Y,self.nodes)
@@ -216,7 +217,7 @@ class HME(object):
              
         # normalise change in parameters and lower bound of likelihood
         normalised_delta_params       = delta_param_norm  / self.total_params
-        normalised_delta_like         = delta_log_like / self.n
+        normalised_delta_like         = delta_log_like / self.n*N
         
         # save changes in likelihood  and parameters for last iteration 
         self.delta_param_norm.append(normalised_delta_params)
@@ -233,12 +234,13 @@ class HME(object):
             self._up_tree_pass()
             self._down_tree_pass()
             if self.verbose is True:
-                out = "iteration {0} completed , total change in parameters is {1}"
+                out = "iteration {0} completed , total change in lower bound of likelihood is {1}"
                 print out.format(i,self.delta_param_norm[-1])
             
-            # terminate algorithm if parameters changed by less than threshold
-            param_change = self.delta_param_norm[-1]
-            if abs(param_change) <= self.conv_thresh:
+            # terminate algorithm if lower bound of likelihood changed by less than threshold
+            # should we use lower bound or change in parameters?????
+            log_like_change = self.delta_like[-1]
+            if log_like_change <= self.conv_thresh:
                     if self.verbose is True:
                        print "Algorithm converged"
                     converged = True
