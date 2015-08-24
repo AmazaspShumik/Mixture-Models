@@ -4,19 +4,9 @@ import numpy as np
 from scipy.stats import multivariate_normal as mvn
 from sklearn.cluster import KMeans
 import label_binariser as lb
+from scipy.misc import logsumexp
+import matplotlib.pyplot as plt
 
-
- ############################ Helper Methods & Classes  #################################
-    
-    
-def bounded_variable(x,lo,hi):
-    '''
-    Returns 'x' if 'x' is between 'lo' and 'hi', 'hi' if x is larger than 'hi'
-    and 'lo' if x is lower than 'lo'
-    '''
-    x[x>hi]=hi
-    x[x<lo]=lo
-    return x
     
 ############################ Mixture Discriminant Analysis ################################    
 
@@ -39,7 +29,7 @@ class MDA(object):
     X :  numpy array of size 'n x m'
            Expanatory variables
           
-    clusters :  list of lentgh 'n' 
+    clusters :  list of length 'k' 
            Number of mixture components in each class
           
     init_restarts : int , default = 2
@@ -65,14 +55,14 @@ class MDA(object):
     '''
     
     def __init__(self,Y,X,clusters,k, max_iter_init = 300, init_restarts       = 2, 
-                                                          init_conv_theshold  = 1e-5,
-                                                          iter_conv_threshold = 1e-20,
-                                                          max_iter            = 300,
-                                                          verbose             = True,
-                                                          accuracy            = 1e-5):
+                                                           init_conv_theshold  = 1e-5,
+                                                           iter_conv_threshold = 1e-20,
+                                                           max_iter            = 2,
+                                                           verbose             = True,
+                                                           accuracy            = 1e-5):
         
         # preprocess target vector and transform it to ground truth matrix
-        self.gt                  =  lb.LabelBinariser(Y,k)                             # instance of LabelBinariser class
+        self.gt                  =  lb.LabelBinariser(Y,k)                             
         self.Y                   =  self.gt.convert_vec_to_binary_matrix(compress = False)
         self.X                   =  X
         # n - observations; m - dimension  
@@ -89,11 +79,11 @@ class MDA(object):
         # means
         self.mu                  =  [np.zeros([self.m,clusters[i]]) for i in range(self.k)]
         # responsibilities
-        self.responsibilities    =  [0.001*np.zeros([self.n,clusters[i]]) for i in range(self.k)]
+        self.responsibilities    =  [np.zeros([self.n,clusters[i]]) for i in range(self.k)]
         # list of lower bounds (expected to be non-increasing series)
         self.lower_bounds        =  []                             
         self.kmeans_maxiter      =  max_iter_init
-        self.kmeans_retsarts     =  init_restarts
+        self.kmeans_restarts     =  init_restarts
         self.max_iter            =  max_iter
         self.kmeans_theshold     =  init_conv_theshold
         self.mda_threshold       =  iter_conv_threshold
@@ -126,16 +116,18 @@ class MDA(object):
              Matrix of posterior probabilities
         '''
         assert np.shape(X)[1]==np.shape(self.X)[1], "Number of features is different"        
-        posterior = np.zeros([self.n,self.k])
+        log_posterior       = np.zeros([self.n,self.k])
+        log_lvpr            = np.log(self.latent_var_prior)
         for k,cluster in enumerate(self.clusters):
             class_prob = np.zeros(self.n)
             for j in range(cluster):
-                p           = bounded_variable(mvn.pdf(X,self.mu[k][:,j],self.covar),
-                                                   self.accuracy,
-                                                   1-self.accuracy)
-                class_prob += p*self.latent_var_prior[k][j]
-            posterior[:,k]  = class_prob*self.class_prior[k]
-        posterior          /= np.outer(np.sum(posterior,axis = 1), np.ones(self.k))
+                log_prob        = mvn.logpdf(X,self.mu[k][:,j],self.covar)
+                class_prob      = np.logaddexp(class_prob,log_prob + log_lvpr[k][j])
+            log_posterior[:,k]  = class_prob + np.log(self.class_prior[k])
+            
+        # normalise probabilities to sum to 1
+        log_posterior       = (log_posterior.T - logsumexp(log_posterior,axis = 1)).T
+        posterior           = np.exp(log_posterior)
         return posterior
         
         
@@ -190,55 +182,53 @@ class MDA(object):
 
     def _iterate(self):
         ''' 
-        Iterates between E-step and M-step, untill change in lower bound of
-        likelihood is smaller than threshold
+        Iterates between E-step and M-step until change in parameters of model 
+        is close to zero
         '''
-        delta = 1
         for i in range(self.max_iter):
-            self._e_step_lower_bound_likelihood()
-            if len(self.lower_bounds) >= 2:
-                delta_change = float(self.lower_bounds[-1] - self.lower_bounds[-2])
-                delta        = delta_change/abs(self.lower_bounds[-2])
-                
-            # if change in lower bound for likelihood is larger than threshold continue EM algorithm
-            if delta > self.mda_threshold:
-                self._m_step()
+            self._e_step()
+            delta                 = self._m_step()
+            
+            # in optimal point change in parameters should be close to zero
+            termination_condition = [dm < self.mda_threshold for dm in delta]
+            if False in termination_condition:                
                 if self.verbose:
-                    iteration_verbose = "iteration {0} completed, lower bound of log-likelihood is {1} "
-                    print iteration_verbose.format(i,self.lower_bounds[-1])
+                    print "iteration {0} completed".format(i)
             else:
-                print "algorithm converged"
+                if self.verbose:
+                    print "algorithm converged"
                 break
         
         
-    def _e_step_lower_bound_likelihood(self):
+    def _e_step(self):
         '''
         Calculates posterior distribution of latent variable for each class
         and lower bound for log-likelihood of data
         '''
-        lower_bound = 0.0
+        log_lvpr    = np.log(self.latent_var_prior)
         for i,resp_k in enumerate(self.responsibilities):
             for j in range(self.clusters[i]):
-                # bound value of pdf to prevent underflow
-                prior            = bounded_variable(mvn.pdf(self.X,self.mu[i][:,j],self.covar),self.accuracy,1-self.accuracy)
-                weighting        = self.Y[:,i] * resp_k[:,j]
-                w                =  weighting*np.log(prior) + weighting*np.log(self.latent_var_prior[i][j])
-                lower_bound     += np.sum(w)
-                # responsibilities for latent variable corresponding to class k
-                resp_k[:,j]      = prior*self.latent_var_prior[i][j]
-            normaliser = np.sum(resp_k, axis = 1)
-            resp_k    /= np.outer(normaliser,np.ones(self.clusters[i]))
-        self.lower_bounds.append(lower_bound)
+                log_prior        = mvn.logpdf(self.X,self.mu[i][:,j],self.covar)
+                resp_k[:,j]      = log_prior + log_lvpr[i][j]
+            normaliser = logsumexp(resp_k, axis = 1)
+            self.responsibilities[i]    = np.exp((resp_k.T - normaliser).T)
         
         
     def _m_step(self):
         '''
         M-step of Expectation Maximization Algorithm
         
-        Calculates maximum likelihood estimates of class priors, mixing latent var.
-        probabilities, means and pooled covariance matrix/
+        Calculates maximum likelihood estimates of class priors, mixing latent variable
+        probabilities, means and pooled covariance matrix
+        
+        Rerturns:
+        ---------
+        
+        delta_mu: numpy array of size 'k x clusters'
+            List of l2 chamges in means
         '''
-        covar = np.zeros([self.m,self.m])
+        delta_mu  = []
+        covar     = np.zeros([self.m,self.m])
         for i in range(self.k):
             for j in range(self.clusters[i]):
                 
@@ -247,22 +237,56 @@ class MDA(object):
                 self.latent_var_prior[i][j]   = np.sum(class_indicator)/self.freq[i]
     
                 # calculate means
-                weighted_means                = np.sum(np.dot(self.X.T, np.diagflat(class_indicator)), axis=1)
-                self.mu[i][:,j]               = weighted_means / np.sum(class_indicator)
+                weighted_means                = np.sum(self.X.T*class_indicator, axis=1)
+                mu                            = weighted_means / np.sum(class_indicator)
+                delta_sq                      = np.sum( (self.mu[i][:,j] - mu)**2 )
+                self.mu[i][:,j]               = mu
+                delta_mu.append(delta_sq)            
                 
                 # calculate pooled covariance matrix
                 centered                      = self.X - np.outer(self.mu[i][:,j],np.ones(self.n)).T
-                addition                      = np.dot(np.dot(centered.T, np.diagflat(class_indicator)),centered)
+                addition                      = np.dot(centered.T*class_indicator,centered)
                 covar                        += addition
                 
         self.covar = covar/self.n
+        return delta_mu
 
 
     def _class_prior_compute(self):
         ''' 
         Computes prior probability of observation being in particular class 
         '''
-        self.class_prior = self.freq/np.sum(self.freq)       
+        self.class_prior = self.freq/np.sum(self.freq)
+        
+        
+if __name__ == "__main__":
+    
+    
+    # generate data set
+    np.random.seed()
+    X = np.ones([600,2])
+    X[0:100,:]   = 2*np.random.randn(100,2)
+    X[100:200,:] = 2*np.random.randn(100,2) + np.array([0,20])
+    X[200:300,:] = 2*np.random.randn(100,2) + np.array([10,10])
+    X[300:400,:] = 2*np.random.randn(100,2) + np.array([10,0])
+    X[400:500,:] = 2*np.random.randn(100,2) + np.array([0,10])
+    X[500:600,:] = 2*np.random.randn(100,2) + np.array([10,20])
+    Y            = np.zeros(600)
+    Y[300:600]   = 1
+    plt.plot(X[Y==1,0],X[Y==1,1],"ro", markersize = 5, label = "1")
+    plt.plot(X[Y==0,0],X[Y==0,1],"bo", markersize = 5, label = "0")
+    plt.legend()
+    plt.xlabel("x1")
+    plt.ylabel("x2")
+    plt.title("MDA")
+    plt.show()
+    
+    mda = MDA(Y,X,k = 2,clusters = [3,3])
+    mda.fit()
+    y_hat = mda.predict(X)
+    
+    
+    
 
     
     
