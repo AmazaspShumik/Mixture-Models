@@ -54,7 +54,6 @@ class LabelBinariser(object):
         self.direct_mapping  = {}
         self.inverse_mapping = {}
         for i,el in enumerate(classes):
-            print i,el
             self.direct_mapping[el] = i
             self.inverse_mapping[i] = el
             
