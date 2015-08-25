@@ -5,7 +5,7 @@ from scipy.stats import multivariate_normal as mvn
 from sklearn.cluster import KMeans
 import label_binariser as lb
 from scipy.misc import logsumexp
-import matplotlib.pyplot as plt
+
 
     
 ############################ Mixture Discriminant Analysis ################################    
@@ -49,17 +49,13 @@ class MDA(object):
          
     max_iter : int, default = 300
            Maximum number of iterations for EM algorithm
-           
-    accuracy: float, default = 1e-5
-           Level of accuracy, for preventing numerical underflow
     '''
     
-    def __init__(self,Y,X,clusters,k, max_iter_init = 300, init_restarts       = 2, 
+    def __init__(self,Y,X,clusters,k, max_iter_init = 100, init_restarts       = 2, 
                                                            init_conv_theshold  = 1e-5,
-                                                           iter_conv_threshold = 1e-20,
+                                                           iter_conv_threshold = 1e-10,
                                                            max_iter            = 2,
-                                                           verbose             = True,
-                                                           accuracy            = 1e-5):
+                                                           verbose             = True):
         
         # preprocess target vector and transform it to ground truth matrix
         self.gt                  =  lb.LabelBinariser(Y,k)                             
@@ -71,7 +67,7 @@ class MDA(object):
         # k - number of classes                         
         self.clusters            =  clusters                  
         self.class_prior         =  np.zeros(self.m)
-        # mixing pro
+        # mixing probabilities
         self.latent_var_prior    =  [np.ones(clusters[i])/clusters[i] for i in range(self.k)] 
         self.freq                =  np.sum(self.Y, axis = 0)  # number of elements in each class
         # pooled covariance matrix
@@ -88,18 +84,17 @@ class MDA(object):
         self.kmeans_theshold     =  init_conv_theshold
         self.mda_threshold       =  iter_conv_threshold
         self.verbose             =  verbose
-        self.accuracy            =  accuracy
         
         
     def fit(self):
         '''
-        Fit the MDA model to the given training data
+        Fit the MDA model to the given training data.
         '''
         self._initialise_params()
         self._iterate()
         
         
-    def posterior_probs(self, X):
+    def predict_probs(self, X):
         ''' 
         Calculates posterior probability
         
@@ -115,31 +110,27 @@ class MDA(object):
         posterior: numpy array of size
              Matrix of posterior probabilities
         '''
-        assert np.shape(X)[1]==np.shape(self.X)[1], "Number of features is different"        
-        log_posterior       = np.zeros([self.n,self.k])
-        log_lvpr            = np.log(self.latent_var_prior)
+        n,m                 = np.shape(X)                   
+        assert m == np.shape(self.X)[1], "Number of features is different"        
+        posterior           = np.zeros([n,self.k])
         for k,cluster in enumerate(self.clusters):
-            class_prob = np.zeros(self.n)
+            class_prob = np.zeros(n)
             for j in range(cluster):
-                log_prob        = mvn.logpdf(X,self.mu[k][:,j],self.covar)
-                class_prob      = np.logaddexp(class_prob,log_prob + log_lvpr[k][j])
-            log_posterior[:,k]  = class_prob + np.log(self.class_prior[k])
-            
-        # normalise probabilities to sum to 1
-        log_posterior       = (log_posterior.T - logsumexp(log_posterior,axis = 1)).T
-        posterior           = np.exp(log_posterior)
+                prob            = mvn.pdf(X,self.mu[k][:,j],self.covar)
+                class_prob     += prob*self.latent_var_prior[k][j]
+            posterior[:,k]  = class_prob*self.class_prior[k]
+        posterior = (posterior.T / np.sum(posterior, axis = 1)).T
         return posterior
         
         
     def predict(self,X):
         '''
         Uses fitted MDA model to predict classes for given explanatory variables
-        X
         
         Parameters:
         ------------
         
-        X: numpy array of size [n,m]
+        X: numpy array of size [unknown,m]
             Explanatory variables
             
         Returns:
@@ -149,7 +140,7 @@ class MDA(object):
             Vector of estimated target values (classes)
         '''
         assert np.shape(X)[1]==np.shape(self.X)[1], "Number of features is different"
-        Y_hat     = self.posterior_probs(X)
+        Y_hat     = self.predict_probs(X)
         Y_est     = self.gt.convert_prob_matrix_to_vec(Y_hat)
         return Y_est
         
@@ -160,6 +151,7 @@ class MDA(object):
         '''
         Initialises parameters using k-means to calculate initial responsibilities
         '''
+        
         # initialise class priors
         self._class_prior_compute()
         
@@ -203,7 +195,6 @@ class MDA(object):
     def _e_step(self):
         '''
         Calculates posterior distribution of latent variable for each class
-        and lower bound for log-likelihood of data
         '''
         log_lvpr    = np.log(self.latent_var_prior)
         for i,resp_k in enumerate(self.responsibilities):
@@ -257,39 +248,7 @@ class MDA(object):
         Computes prior probability of observation being in particular class 
         '''
         self.class_prior = self.freq/np.sum(self.freq)
-        
-        
-if __name__ == "__main__":
-    
-    
-    # generate data set
-    np.random.seed()
-    X = np.ones([600,2])
-    X[0:100,:]   = 2*np.random.randn(100,2)
-    X[100:200,:] = 2*np.random.randn(100,2) + np.array([0,20])
-    X[200:300,:] = 2*np.random.randn(100,2) + np.array([10,10])
-    X[300:400,:] = 2*np.random.randn(100,2) + np.array([10,0])
-    X[400:500,:] = 2*np.random.randn(100,2) + np.array([0,10])
-    X[500:600,:] = 2*np.random.randn(100,2) + np.array([10,20])
-    Y            = np.zeros(600)
-    Y[300:600]   = 1
-    plt.plot(X[Y==1,0],X[Y==1,1],"ro", markersize = 5, label = "1")
-    plt.plot(X[Y==0,0],X[Y==0,1],"bo", markersize = 5, label = "0")
-    plt.legend()
-    plt.xlabel("x1")
-    plt.ylabel("x2")
-    plt.title("MDA")
-    plt.show()
-    
-    mda = MDA(Y,X,k = 2,clusters = [3,3])
-    mda.fit()
-    y_hat = mda.predict(X)
-    
-    
-    
 
-    
-    
-    
+
     
     
