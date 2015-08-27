@@ -88,12 +88,8 @@ class WeightedGaussianDiscriminantAnalysis(object):
             weights = np.ones(n)
                    
         # Interestingly loop was faster than using outer product
-        Y_w = np.zeros([n,k])
-        X_w = np.zeros([n,m])
-        for i in range(k):
-            Y_w[:,i]  =  weights*Y[:,i]
-        for j in range(m):
-             X_w[:,j] =  weights*X[:,j] 
+        Y_w = (Y.T*weights).T
+        X_w = (X.T*weights).T
              
         # recovery in case of decrease in log-likelihood (NUMERICAL UNDERFLOW ISSUE IN DEEP
         # HIERARCHICAL MIXTURE OF EXPERTS)
@@ -117,7 +113,7 @@ class WeightedGaussianDiscriminantAnalysis(object):
         for i in range(k):
             np.outer(self.means[:,i],np.ones(n), out = M)
             X_cent       = (X - M.T)
-            X_cent_w     = X_cent*np.outer(Y_w[:,i],np.ones(m))
+            X_cent_w     = (X_cent.T*Y_w[:,i]).T
             np.dot(X_cent_w.T,X_cent, out = cov)
             self.cov    += cov
         self.cov        /= weights_total
@@ -191,8 +187,8 @@ class WeightedGaussianDiscriminantAnalysis(object):
         for i in range(self.k):
             log_posterior[:,i]  = mvn.logpdf(X,self.means[:,i], cov = self.cov)
             log_posterior[:,i] += self.log_priors[i]
-        normaliser         = np.outer(logsumexp(log_posterior, axis = 1),np.ones(self.k))
-        posterior_log_prob = log_posterior - normaliser
+        normaliser         = logsumexp(log_posterior, axis = 1)
+        posterior_log_prob = (log_posterior.T - normaliser).T
         return posterior_log_prob
                 
         
@@ -234,15 +230,14 @@ class WeightedGaussianDiscriminantAnalysis(object):
         if weights is None:
             weights = np.ones(n)
             
-        
         # log-likelihood
         log_posterior = np.zeros([n,self.k])
         for i in range(self.k):
             log_posterior[:,i]  = mvn.logpdf(X,self.means[:,i], cov = self.cov)
             log_posterior[:,i] += self.log_priors[i]
         if weighted_Y is False:
-           Y             = Y*np.outer(weights, np.ones(self.k))
-        log_like        = np.sum(Y*log_posterior)
+           Y             = (Y.T*weights).T
+        log_like         = np.sum(Y*log_posterior)
         return log_like
         
         

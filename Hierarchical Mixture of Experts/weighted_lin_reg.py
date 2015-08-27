@@ -135,7 +135,7 @@ class WeightedLinearRegression(object):
          
     '''
     
-    def __init__(self, solver = "qr", stop_learning = 1e-3):
+    def __init__(self, solver = "lapack_solver", stop_learning = 1e-3):
         self.solver              = solver
         self.theta               = None             
         self.var                 = 0               
