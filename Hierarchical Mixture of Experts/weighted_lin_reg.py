@@ -8,6 +8,7 @@ Weighted Linear Regression , Expert in HME model
 
 import numpy as np
 from scipy.stats import norm
+from scipy.linalg import solve_triangular
 
 #------------------------------------ Least Squares Solvers-------------------------------#
 
@@ -32,9 +33,9 @@ def cholesky_solver_least_squares(part_one, part_two):
     # R*R.T*Theta = part_two
     R = np.linalg.cholesky(part_one)
     # R*Z = part_two
-    Z     = np.linalg.solve(R,part_two)
+    Z     = solve_triangular(R,part_two, check_finite = False, lower = True)
     # R.T*Theta = Z
-    Theta = np.linalg.solve(R.T,Z)
+    Theta = solve_triangular(R.T,Z, check_finite = False, lower = False)
     return Theta
     
     
@@ -61,7 +62,7 @@ def qr_solver(Q,R,Y):
          Vector of parameters
     '''
     qy      = np.dot(Q.T,Y)
-    Theta   = np.linalg.solve(R,qy)
+    Theta   = solve_triangular(R,qy, check_finite = False, lower = False)
     return  Theta
    
    
@@ -134,7 +135,7 @@ class WeightedLinearRegression(object):
          
     '''
     
-    def __init__(self, solver = "lapack_solver", stop_learning = 1e-3):
+    def __init__(self, solver = "qr", stop_learning = 1e-3):
         self.solver              = solver
         self.theta               = None             
         self.var                 = 0               
@@ -177,13 +178,16 @@ class WeightedLinearRegression(object):
         n,m         =  np.shape(X)
         if weights is not None:
              w            =  np.sqrt(weights)
-             X_w          =  X*np.outer(w,np.ones(m))
-             Y_w          =  Y*w
-             
+        else:
+             w            =  np.ones(n)
+             weights      =  w
+        X_w          =  (X.T*w).T
+        Y_w          =  Y*w
+         
         if self.theta is None:
             self.init_params(m)
              
-        # save paramters in case log-likelihood drops ( UNDERFLOW ISSUE IN 
+        # save paramters in case log-likelihood drops ( PRECISION ISSUE IN 
         # DEEP HIERARCHICAL MIXTURE OF EXPERTS)
         theta_recovery  =  self.theta
         var_recovery    =  self.var
@@ -205,16 +209,16 @@ class WeightedLinearRegression(object):
             self.theta = lstsq_wrapper(Y_w,X_w)
             
         # calculate variances 
-        vec_1       =  (Y_w - np.dot(X_w,self.theta))
-        self.var    =  np.dot(vec_1,vec_1)/np.sum(weights)
+        vec_1          =  (Y_w - np.dot(X_w,self.theta))
+        self.var       =  np.dot(vec_1,vec_1)/np.sum(weights)
         
-        # if likelihood dropped ( UNDERFLOW ISSUE) use recovery parameters
+        # if likelihood dropped ( PRECISION ISSUE) use recovery parameters
         # used in DEEP HIERARCHICAL MIXTURE OF EXPERTS
-        log_like_after  = self.log_likelihood(X,Y,weights)
+        log_like_after = self.log_likelihood(X,Y,weights)
         delta_log_like = ( log_like_after - log_like_before)/n
         if delta_log_like < self.stop_learning:
-            self.theta     = theta_recovery
-            self.var       = var_recovery
+            self.theta = theta_recovery
+            self.var   = var_recovery
             delta_log_like = 0
             
         # save change in parameters and likelihood
@@ -257,7 +261,6 @@ class WeightedLinearRegression(object):
         
         Parameters:
         -----------
-        
         X: numpy array of size 'n x m'
              Explanatory variables
         
@@ -269,7 +272,6 @@ class WeightedLinearRegression(object):
              
         Returns:
         --------
-        
         weighted_log_likelihood: float
              Log likelihood
 
@@ -288,7 +290,6 @@ class WeightedLinearRegression(object):
         
         Parameters:
         -----------
-        
         X: numpy array of size 'unknown x n'
            Explanatory variables
            
@@ -300,7 +301,6 @@ class WeightedLinearRegression(object):
            
         Returns:
         --------
-        
         delta_prob: numpy array of size 'unknown x 1'
             Probability of observing Y in range [y_lo, y_hi]
         '''
@@ -317,5 +317,7 @@ class WeightedLinearRegression(object):
            lower_bound = norm.cdf(y_lo, loc = means, scale = std)
         delta_prob  = abs(upper_bound - lower_bound)
         return delta_prob
+
+
 
         
