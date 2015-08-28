@@ -41,7 +41,7 @@ def cholesky_solver_least_squares(part_one, part_two):
     
 def qr_solver(Q,R,Y):
     '''
-    Solves least squares using qr decomposition.
+    Solves least squares problem using qr decomposition.
     
     Parameters:
     -----------
@@ -94,11 +94,11 @@ def norm_pdf_log_pdf(theta,y,x,sigma_2):
     Parameters:
     ----------
     
-    Theta: numpy array of size 'm x k', 
+    theta: numpy array of size 'm x k', 
            Matrix of parameters
-    Y: numpy array of size 'n x 1'
+    y: numpy array of size 'n x 1'
            Vector of dependent variables
-    X: numpy array of size 'n x m'
+    x: numpy array of size 'n x m'
            Matrix of inputs 
     sigma_2: numpy array of size 'm x 1'
            Vector of variances

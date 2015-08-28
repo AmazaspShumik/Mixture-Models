@@ -43,8 +43,13 @@ class WeightedGaussianDiscriminantAnalysis(object):
         
     def _bias_term_pre_processing_X(self,X,bias_term):
         '''
-        Preprocesses X, returns X design matrix without column of bias_term, which is
-        expected to be last column
+        Preprocesses X and adjusts for bias term
+        
+        Returns:
+        --------
+          X: numpy array of size 'n x (m-1)' 
+             Design matrix without column of bias_term, which is expected to be 
+             last column
         '''
         if bias_term is None:
             bias_term = self.bias_term
@@ -64,7 +69,7 @@ class WeightedGaussianDiscriminantAnalysis(object):
         X: numpy array of size 'n x m'
             Expalanatory variables
             
-        Y_raw: numpy array of size 'n x 1'
+        Y: numpy array of size 'n x 1'
             Dependent variables that need to be approximated
             
         weights: numpy array of size 'n x 1'
@@ -89,7 +94,6 @@ class WeightedGaussianDiscriminantAnalysis(object):
                    
         # Interestingly loop was faster than using outer product
         Y_w = (Y.T*weights).T
-        X_w = (X.T*weights).T
              
         # recovery in case of decrease in log-likelihood (NUMERICAL UNDERFLOW ISSUE IN DEEP
         # HIERARCHICAL MIXTURE OF EXPERTS)
@@ -103,7 +107,7 @@ class WeightedGaussianDiscriminantAnalysis(object):
         self.log_priors  =  np.log(weighted_norm/weights_total)
         
         # calculate weighted means of Gaussians for each class
-        weighted_sum     =  np.dot(X_w.T,Y)
+        weighted_sum     =  np.dot(X.T*weights,Y)
         self.means       =  weighted_sum / weighted_norm
 
         # calculate pooled covarince matrix
@@ -113,8 +117,7 @@ class WeightedGaussianDiscriminantAnalysis(object):
         for i in range(k):
             np.outer(self.means[:,i],np.ones(n), out = M)
             X_cent       = (X - M.T)
-            X_cent_w     = (X_cent.T*Y_w[:,i]).T
-            np.dot(X_cent_w.T,X_cent, out = cov)
+            np.dot(X_cent.T*Y_w[:,i],X_cent, out = cov)
             self.cov    += cov
         self.cov        /= weights_total
         

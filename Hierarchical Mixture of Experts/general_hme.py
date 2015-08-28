@@ -6,9 +6,6 @@ import label_binariser as lb
 from helpers import *
 
 
-
-
-
 class HME(object):
     '''
     Implementation of Hierarchical Mixture of Experts, supports only balanced tree 
@@ -239,7 +236,7 @@ class HME(object):
             
             # terminate algorithm if lower bound of likelihood changed by less than threshold
             # should we use lower bound or change in parameters?????
-            log_like_change = self.delta_like[-1]
+            log_like_change = self.delta_log_like_lb[-1]
             if log_like_change <= self.conv_thresh:
                     if self.verbose is True:
                        print "Algorithm converged"
@@ -350,9 +347,6 @@ def prob_grid(hme,X,y_lo,y_hi,n_steps, posterior_type = "pdf"):
         y_hi_i      += step
         y_lo        += step
     return [x_grid,y_grid,P_grid]
-        
-        
-        
-        
+
 
               

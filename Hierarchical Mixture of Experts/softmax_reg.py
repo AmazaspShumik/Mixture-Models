@@ -39,18 +39,15 @@ def log_softmax(Theta,X):
     m,k           = np.shape(Theta)
     X_Theta       = np.dot(X,Theta)
     norm          = logsumexp(X_Theta, axis = 1)
-    norm          = np.outer(norm, np.ones(k))
-    log_softmax   = X_Theta - norm
+    log_softmax   = (X_Theta.T - norm).T
     return log_softmax
 
 
     
 def cost_grad(Theta,Y,X,k,weights):
     '''
-    Calculates negative log likelihood and gradient of negative log likelihood of multinomial
-    distribution together. Reusing intermediate values created in process of likelihood
-    and estimation makes this function more efficient than calls to two separate 
-    function.
+    Calculates weighted negative log likelihood and gradient of weighted negative 
+    log likelihood of multinomial distribution together.
     
     Parameters:
     ----------
@@ -81,8 +78,7 @@ def cost_grad(Theta,Y,X,k,weights):
     unweighted            =  np.sum(Y*log_P, axis = 1)
     cost                  =  -1.0*np.dot(weights,unweighted)
     resid                 =  (Y-np.exp(log_P))
-    X_w                   =  X*np.outer(weights, np.ones(m))
-    grad                  =  -1.0*np.dot(X_w.T,resid)
+    grad                  =  -1.0*np.dot( X.T*weights,resid)
     grad                  =  grad[:,1:]
     # use no.array(np.reshape()), otherwise l_bfgs_b have strange 
     # initialisation error for FORTRAN code
@@ -103,13 +99,13 @@ class SoftmaxRegression(object):
     data matrix). This implementation of softmax regression does not suffer from
     overparametrization (so it has unique soltuion), however in case of complete 
     separability will have the same problem as logistic regression (norm of coefficient 
-    going to infinity, we)
+    going to infinity)
 
     Parameters:
     -----------
     
     max_iter: int 
-                Maximum nmber of iterations (default = 1000)
+                Maximum number of iterations (default = 1000)
                 
     tolerance: float 
                 Precision threshold for convergence (default = 1e-10)
@@ -309,20 +305,4 @@ class SoftmaxRegression(object):
         log_p = np.sum(Y*log_softmax(self.theta,X), axis = 1)
         return log_p
 
-        
-if __name__ == "__main__":
-    X      = np.ones([30000,3]) 
-    X[:,0] = np.random.normal(0,1,30000)
-    X[:,1] = np.random.normal(0,1,30000)
-    X[10000:20000,0:2] = X[10000:20000,0:2]+10
-    X[20000:30000,0:2] = X[20000:30000,0:2]+15
-    Y = np.zeros([30000,3])
-    Y[10000:20000,0] = 1
-    Y[0:10000,1] = 1
-    Y[20000:30000,2] = 1
-    sr = SoftmaxRegression()
-    sr.init_params(3,3)
-    weights = np.ones(30000)/3
-    sr.fit(Y,X,weights)
-    Y_hat = sr.predict_probs(X)
     
