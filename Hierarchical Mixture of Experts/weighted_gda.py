@@ -104,7 +104,7 @@ class WeightedGaussianDiscriminantAnalysis(object):
         
         # calculate log priors
         weighted_norm    =  np.sum(Y_w, axis = 0) 
-        self.log_priors  =  np.log(weighted_norm/weights_total)
+        self.log_priors  =  np.log(weighted_norm) - np.log(weights_total)
         
         # calculate weighted means of Gaussians for each class
         weighted_sum     =  np.dot(X.T*weights,Y)
