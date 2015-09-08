@@ -12,9 +12,6 @@ Mixture Discriminant Analysis is generative classification algorithm, that assum
 ##  Bernoulli Mixture Model
 
 
-## Multinomial Mixture Model
-
-## Mixture Density Neural Network
 
 
 
