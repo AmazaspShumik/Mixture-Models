@@ -502,10 +502,11 @@ if __name__ == '__main__':
     # [-4,-13]
     X[200:300,0] = np.random.normal(-4,1,100)
     X[200:300,1] = np.random.normal(-13,2,100)
-    plt.plot(X[:,0],X[:,1],'ro')
-    plt.show()
     vbgmm = VBGMMARD(max_components = 10,init_type = 'auto')
     resps = vbgmm.fit(X)
+    plt.plot(X[:,0],X[:,1],'ro')
+    plt.plot(vbgmm.means[:,0],vbgmm.means[:,1],'go',markersize = 10)
+    plt.show()
     
     print "real means"
     print np.mean(X[0:100,:],0)
