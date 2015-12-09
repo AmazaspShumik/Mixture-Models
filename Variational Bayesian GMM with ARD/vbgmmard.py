@@ -7,16 +7,16 @@ from sklearn.utils import shuffle
 from scipy.linalg import pinvh
 from scipy.linalg import eigvalsh
 from scipy.misc import logsumexp
-from scipy.special import multigammaln
 
 LOG_PI = np.log(np.pi)
 LOG_2  = np.log(2)
 
 #-------------------------- Wishart Distribution ------------------------------#
 
+
 def wishart_log_normaliser(scale,dof,scale_logdet):
     '''
-    Normalisation constant for Wishart distribution
+    Negative logarithm of normalisation constant for Wishart distribution
     
     Parameters:
     -----------
@@ -68,12 +68,12 @@ def wishart_entropy(dof,scale,prec_logdet, scale_logdet):
     '''
     D = scale.shape[0]
     return (
-            - wishart_log_normaliser(scale,dof,scale_logdet)
+              wishart_log_normaliser(scale,dof,scale_logdet)
             - 0.5 * (dof - D - 1) * prec_logdet
             + 0.5 * dof * D
            )
 
-#----------  Variational Gaussian Mixture with Automatic Relevance Determination -------#
+#----------  Variational Gaussian Mixture Model with Automatic Relevance Determination ---------#
 
 class VBGMMARD(object):
     '''
@@ -115,7 +115,7 @@ class VBGMMARD(object):
     '''
     
     def __init__(self, max_components, dof = None, covar = None, weights = None, beta = 1e-3, 
-                       means = None,init_type = 'automatic',max_iter = 200,
+                       means = None,init_type = 'automatic',max_iter = 25,
                        conv_thresh = 1e-3,n_kmean_inits = 3, prune_thresh = 1e-2,
                        rand_state = 1, mfa_max_iter = 2):
         self.n_components               =  max_components
@@ -136,6 +136,14 @@ class VBGMMARD(object):
         # list of lower bounds (is updated at each iteration of algorithm)
         self.lower_bounds               =  [np.NINF]
         
+        # DELTE AFTER TESTING
+        self.e_log_like_list            = [np.NINF]
+        self.e_log_qlat_list            = [np.NINF]   
+        self.e_log_mp_list              = [np.NINF]
+        self.e_log_qmp_list             = [np.NINF]   
+        self.e_log_lat_list             = [np.NINF]         
+        
+        
            
     def _init_params(self,X):
         '''
@@ -155,8 +163,9 @@ class VBGMMARD(object):
             # broad prior over precision matrix
             if self.scale_inv0 is None:
                 # heuristics that seems to work pretty good
-               self.scale_inv0 = np.diag( (np.max(X,0) - np.min(X,0))**2 )
-               scale0          = pinvh(self.scale_inv0)# pinvh(self.scale_inv0)
+                diag_els        =  (np.max(X,0) - np.min(X,0))**2
+                self.scale_inv0 = np.diag( diag_els  )
+                self.scale0     = np.diag( 1./ diag_els )
             # initialise weights
             if self.weights0 is None:
                 self.weights0  = np.ones(self.n_components) / self.n_components
@@ -188,7 +197,7 @@ class VBGMMARD(object):
         
         # At first iteration these parameters are equal to priors, but they change 
         # at each iteration of mean field approximation
-        self.scale   = np.array([np.copy(scale0) for _ in range(self.n_components)])
+        self.scale   = np.array([np.copy(self.scale0) for _ in range(self.n_components)])
         self.means   = np.copy(self.means0)
         self.weights = np.copy(self.weights0)
         self.dof     = self.dof0*np.ones(self.n_components)
@@ -208,6 +217,9 @@ class VBGMMARD(object):
         k: int
            Cluster index
            
+        bound_calculate: boolean
+           If True calculates part of lower bound
+           
         Returns:
         --------
         log_pnk: numpy array of size [n_features,1]
@@ -217,14 +229,17 @@ class VBGMMARD(object):
         scale_logdet   = np.linalg.slogdet(self.scale[k])[1]
         e_logdet_prec  = sum([psi(0.5*(self.dof[k]+1-i)) for i in range(1,self.d+1)])
         e_logdet_prec += scale_logdet + self.d*np.log(2)
+        
         # save value of logdet for using in lower bound calculation
         if bound_calculate is True:
            self.prec_logdet[k]  = e_logdet_prec
            self.scale_logdet[k] = scale_logdet
+           
         # calculate expectation of quadratic form (x-mean_k)'*precision_k*(x - mean_k)
         x_diff         = X - self.means[k,:]
         e_quad_form    = np.sum( np.dot(x_diff,self.scale[k,:,:])*x_diff, axis = 1 )
         e_quad_form   *= self.dof[k]
+        
         # responsibilities without normalisation
         log_pnk        = np.log(self.weights[k]) + 0.5*e_logdet_prec - e_quad_form
         log_pnk       -= 0.5*self.d / self.beta[k]
@@ -234,6 +249,19 @@ class VBGMMARD(object):
     def _update_resps(self,X, bound_calculate = False):
         '''
         Updates distribution of latent variable (responsibilities)
+        
+        Parameters:
+        -----------
+        X: numpy array of size [n_samples,n_features] 
+           Data matrix
+           
+        bound_calculate: boolean
+           If True calculates part of lower bound
+           
+        Returns:
+        --------
+        
+        
         '''
         # log of responsibilities before normalisaton
         log_p     = [self._update_logresp_k(X,k) for k in range(self.n_components)]
@@ -242,7 +270,7 @@ class VBGMMARD(object):
         p         = np.exp(log_p)
         # precompute values for lower bound 
         if bound_calculate is True:
-            self.e_log_qlat = np.sum(log_p*p)
+            self.e_log_qlat = np.sum(np.log(p)*p)
         return p.T
     
     
@@ -257,17 +285,9 @@ class VBGMMARD(object):
             self.means[k]  = (self.beta0*self.means0[k,:] + Nk[k]*Xk[k]) / self.beta[k]
             self.dof[k]    = self.dof0 + Nk[k] + 1
             Xkdiff         = Xk[k] - self.means0[k,:]
-            print "Xk"
-            print Xk[k]
-            print "Xkdiff"
-            print Xkdiff
-            print "Xkdiff squared"
-            print Xkdiff**2
             self.scale[k]  = pinvh(self.scale_inv0 + Nk[k]* ( Sk[k] + 
                              self.beta0/(self.beta0 + Nk[k])*np.outer(Xkdiff,Xkdiff) )) 
-            
-            # computing elements of lower bound
-
+                             
     
     def _lower_bound(self,Nk,Xk,Sk):
         '''
@@ -275,34 +295,64 @@ class VBGMMARD(object):
         
         Parameters:
         -----------
-        Nk:
+        Nk: numpy array of size [n_components,1]
+            Sum of responsibilities by component
         
+        Xk: list of numpy arrays of length n_components
+            Weighted average of observarions, weights are responsibilities
         
-        Xk:
-        
-        
-        Sk:
-        
-        
-        
+        Sk: list of numpy arrays of length n_components
+            Weighted variance of observations, weights are responsibilities 
         '''
-        e_log_like = 0    # E[log(P(X| mu, prec, latent_variable))]
-        e_log_mp   = 0    # E[log(P(mu,precision))], prior of parameters
-        e_log_lat  = 0    # E[log(P(Z))], latent variable
-        e_log_qmp  = 0    # E[log(Q(mu,precision))], apprximation to posterior of params
+        e_log_like = 0    
+        e_log_mp   = 0    
+        e_log_lat  = 0    
+        e_log_qmp  = 0    
         for k in range(self.n_components):
+            
+            # E[log(P(X| mu, prec, latent_variable))]
             x_diff_k    = Xk[k] - self.means[k,:]
-            e_log_like += 0.5*Nk[k]*(self.prec_logdet[k] - float(self.d)/self.beta[k] - 
-                          self.d*np.log(2*np.pi) - self.dof[k]*(np.trace(np.dot(Sk[k],self.scale[k])) +
-                          np.sum(np.dot(x_diff_k,self.scale[k])*x_diff_k) ))
-            e_log_mp   += 0
+            e_log_like += ( 0.5 * Nk[k]*(self.prec_logdet[k] - float(self.d)/self.beta[k] - 
+                            self.d*(LOG_2 + LOG_PI) -
+                            self.dof[k]*(np.trace(np.dot(Sk[k],self.scale[k])) -
+                            self.dof[k]*np.sum(np.dot(x_diff_k,self.scale[k])*x_diff_k)) ) 
+                          )
+            # E[log(P(mu,precision))], prior of parameters
+            m_diff_k    = self.means[k,:] - self.means0[k,:]
+            e_log_mp   += ( 0.5 * self.d *(np.log(self.beta0) - LOG_PI - LOG_2) +
+                            0.5 * self.prec_logdet[k] - 
+                            0.5 * self.d * self.beta0 / self.beta[k] - 
+                            0.5 *self.beta0 *self.dof[k] *np.dot(np.dot(m_diff_k,self.scale[k]),m_diff_k)-
+                            0.5 * self.dof[k]*np.trace(np.dot(self.scale_inv0,self.scale[k])) +
+                            0.5 * (self.dof0 - self.d - 1) * self.prec_logdet[k]
+                          )
+            # E[log(P(Z))], latent variable
             e_log_lat  += Nk[k]*np.log(self.weights[k])
-            e_log_qmp  += 0.5*self.prec_logdet[k] - self.d*0.5*(1 - np.log(0.5*self.beta[k]/np.pi))
-            e_log_qmp  -= wishart_entropy(self.dof[k],self.scale[k],self.prec_logdet[k])
-        lower_bound  = e_log_like + e_log_mp + e_log_lat - e_log_qmp - self.e_log_qlat
+            
+            # E[log(Q(mu,precision))], apprximation to posterior of params
+            e_log_qmp  += ( 0.5 * self.prec_logdet[k] +
+                            0.5 * self.d * (np.log(self.beta[k]) - LOG_2 - LOG_PI) - 
+                            0.5 * self.d - 
+                            wishart_entropy(self.dof[k], self.scale[k], 
+                                          self.prec_logdet[k],self.scale_logdet[k])
+                          )
+        
+        #scale0_logdet    = np.linalg.slogdet(self.scale0)[1]
+        scale0_logdet   = np.sum( np.log( np.diag( self.scale0 ) ) )
+        e_log_mp       -= self.n_components * wishart_log_normaliser(self.scale0,
+                                                                     self.dof0,
+                                                                     scale0_logdet)
+                                                                     
+        lower_bound     = e_log_like + e_log_mp + e_log_lat - e_log_qmp - self.e_log_qlat
+        
+        self.e_log_like_list.append(e_log_like)
+        self.e_log_qlat_list.append(-self.e_log_qlat) 
+        self.e_log_mp_list.append(e_log_mp)
+        self.e_log_qmp_list.append(-e_log_qmp) 
+        self.e_log_lat_list.append(e_log_lat)        
         
         # lower bound is non-decreasing, otherwise there is error in software        
-        assert lower_bound >= self.lower_bounds[-1],'Lower Bound should be non-decreasing!'
+        #assert lower_bound >= self.lower_bounds[-1],'Lower Bound should be non-decreasing!'
         
         # check convergence         
         if lower_bound  - self.lower_bounds[-1] <= self.conv_thresh:
@@ -356,15 +406,12 @@ class VBGMMARD(object):
                     
                     # calculate lower bound
                     self._lower_bound(Nk,Xk,Sk)
-                    self._check_convergence()
-                    if self.conveged is True:
-                        return
-                    else:
-                        pass
-                        
-                   
+                    
+                    # prune all iirelevant weights
                     active            = self.weights > self.prune_thresh
                     self.means        = self.means[active,:]
+                    self.means0       = self.means0[active,:]
+                    self.scale        = self.scale[active,:,:]
                     self.weights      = self.weights[active]
                     self.weights     /= np.sum(self.weights)
                     self.dof          = self.dof[active]
@@ -477,13 +524,35 @@ if __name__ == '__main__':
     
     os.chdir("/Users/amazaspshaumyan/Desktop/MixtureExperts/Variational Bayesian GMM with ARD/")
     Data = pd.read_csv("old_faithful.txt")
-    vbgmm_of = VBGMMARD(max_components = 20, init_type = 'auto')
+    vbgmm_of = VBGMMARD(max_components = 3, init_type = 'auto')
     r = vbgmm_of.fit(np.array(Data))
     plt.plot(Data['eruptions'],Data['waiting'],'bo')
     plt.plot(vbgmm_of.means[:,0],vbgmm_of.means[:,1],'ro')
     plt.show()
     
     print "Selected number of clusters {0}".format(vbgmm_of.means.shape[0])
+    
+    plt.plot(vbgmm.e_log_like_list,'b-')
+    plt.title("log-like")
+    plt.show()
+    
+    plt.plot(vbgmm.e_log_mp_list,'b-')
+    plt.title("log mean - precision")
+    plt.show()
+    
+    plt.plot(vbgmm.e_log_lat_list,'b-')
+    plt.title("log latent variable")
+    plt.show()
+    
+    plt.plot(vbgmm.e_log_qmp_list,'b-')
+    plt.title("log approx mean-precision")
+    plt.show()
+    
+    plt.plot(vbgmm.e_log_qlat_list,'b-')
+    plt.title("log approx latent")
+    plt.show()
+    
+    
     
             
             
