@@ -7,6 +7,7 @@ from scipy.misc import logsumexp
 from scipy.stats import t
 from math import *
 import warnings
+from numpy import pi
 
 #TODO: lower bound & convergence check using lower bound
 
@@ -15,33 +16,19 @@ class StudentMultivariate(object):
     Multivariate Student Distribution
     '''
     def __init__(self,mean,precision,df):
-        self.mean = mean
+        self.mu   = mean
         self.prec = precision
         self.df   = df
-        
+                
     def pdf(self,x):
-        pass
-        
-        
-def St(x,mu,Sigma,df,d):
-    '''
-    Multivariate t-student density:
-    output:
-        the density of the given element
-    input:
-        x = parameter (d dimensional numpy array or scalar)
-        mu = mean (d dimensional numpy array or scalar)
-        Sigma = scale matrix (dxd numpy array)
-        df = degrees of freedom
-        d: dimension
-    '''
-    Num = gamma(1. * (d+df)/2)
-    Denom = ( ( gamma(1.*df/2) * pow(df*pi,1.*d/2) * pow(np.linalg.det(Sigma),1./2) * 
-                pow(1 + (1./df)*np.dot(np.dot((x 
-                - mu),np.linalg.inv(Sigma)), (x - mu)),1.* (d+df)/2)) 
-            )
-    d = 1. * Num / Denom 
-    return d
+        Num = gamma(1. * (self.d+self.df)/2)
+        Denom = ( ( gamma(1.*self.df/2) * pow(self.df*pi,1.*self.d/2) * pow(np.linalg.det(self.prec),1./2) * 
+                    pow(1 + (1./self.df)*np.dot(np.dot((x -
+                    self.mu),np.linalg.inv(self.prec)), (x - self.mu)),1.* (self.d+self.df)/2)) 
+                )
+        d = 1. * Num / Denom 
+        return d
+
 
 
 #----------  Variational Gaussian Mixture Model with Automatic Relevance Determination ---------#
@@ -323,7 +310,6 @@ class VBGMMARD(object):
                 means_before = np.copy(self.means)
                 self._update_means_precisions(Nk,Xk,Sk)
                 
-                
                 # STEP 2: Maximize lower bound with respect to weights, prune
                 #         clusters with small weights & check convergence 
                 if i+1 == self.mfa_max_iter:
@@ -359,6 +345,10 @@ class VBGMMARD(object):
                         "or conv_thresh parameters"))
         self._postprocess(X)
         self.is_fitted  = True
+        
+        
+    def predict_cluster_prob(self):
+        pass
     
     
     def _predict_params(self):
@@ -369,7 +359,7 @@ class VBGMMARD(object):
         for k in range(self.n_components):
             df    = self.dof[k] + 1 - self.d
             prec  = self.scale[k,:,:] * self.beta[k] * df / (1 + self.beta[k])
-            self.St.append(t(10,loc = self.means[k,:], scale = prec))
+            self.St.append(StudentMultivariate(self.means[k,:],prec,self.dof[k]))
         
         
     def predictive_pdf(self,x):
@@ -390,26 +380,6 @@ class VBGMMARD(object):
         if self.is_fitted is True and self.St is None:
             self._predict_params()       
         return [w*st.pdf(x) for w,st in zip(self.weights,self.St)]
-        
-        
-    def predictive_cdf(self,x):
-        '''
-        CDF Predictive distribution
-        
-        Parameters:
-        -----------
-        x: numpy array of size [n_samples_test_set,n_features]
-           Data matrix for test set
-           
-        Returns:
-        --------
-        : numpy array
-           Value of cdf of predictive distribution at x
-        '''
-        # check whether prediction parameters were calculated before
-        if self.is_fitted is True and self.St is None:
-            self.predict_params()       
-        return [w*st.cdf(x) for w,st in zip(self.weights,self.St)]
 
 
     def get_params(self):
