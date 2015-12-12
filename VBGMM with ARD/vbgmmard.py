@@ -15,10 +15,11 @@ class StudentMultivariate(object):
     '''
     Multivariate Student Distribution
     '''
-    def __init__(self,mean,precision,df):
+    def __init__(self,mean,precision,df,d):
         self.mu   = mean
         self.prec = precision
         self.df   = df
+        self.d    = d
                 
     def pdf(self,x):
         Num = gamma(1. * (self.d+self.df)/2)
@@ -347,10 +348,40 @@ class VBGMMARD(object):
         self.is_fitted  = True
         
         
-    def predict_cluster_prob(self):
-        pass
+    def predict_cluster_prob(self,x):
+        '''
+        Calculates of observation being in particular cluster
+        
+        Parameters:
+        -----------
+        x: numpy array of size [n_samples_test_set, n_features]
+           Data matrix for test set
+           
+        Returns:
+        --------
+        : numpy array of size [n_samples_test_set, n_components]
+           Responsibilities for test set
+        '''
+        return self._update_resps(x)
     
     
+    def predict_cluster(self,x):
+        '''
+        Predicts which cluster generated test data
+        
+        Parameters:
+        -----------
+        x: numpy array of size [n_samples_test_set, n_features]
+           Data matrix for test set
+           
+        Returns:
+        --------
+        : numpy array of size [n_samples_test_set, n_components]
+           Responsibilities for test set
+        '''
+        return np.argmax( self._update_resps(x), 1)
+        
+        
     def _predict_params(self):
         '''
         Calculates parameters for predictive distribution
@@ -359,7 +390,7 @@ class VBGMMARD(object):
         for k in range(self.n_components):
             df    = self.dof[k] + 1 - self.d
             prec  = self.scale[k,:,:] * self.beta[k] * df / (1 + self.beta[k])
-            self.St.append(StudentMultivariate(self.means[k,:],prec,self.dof[k]))
+            self.St.append(StudentMultivariate(self.means[k,:],prec,self.dof[k],self.d))
         
         
     def predictive_pdf(self,x):
@@ -484,15 +515,16 @@ if __name__ == '__main__':
     import os
     import pandas as pd
     
-    os.chdir("/Users/amazaspshaumyan/Desktop/MixtureExperts/Variational Bayesian GMM with ARD/")
+    os.chdir("/Users/amazaspshaumyan/Desktop/MixtureExperts/VBGMM with ARD/")
     Data = pd.read_csv("old_faithful.txt")
     vbgmm_of = VBGMMARD(max_components = 20, init_type = 'auto', conv_thresh = 1e-3)
-    r = vbgmm_of.fit(np.array(Data))
+    r = vbgmm_of.fit(np.array(Data[['eruptions','waiting']]))
     plt.plot(Data['eruptions'],Data['waiting'],'bo')
     plt.plot(vbgmm_of.means[:,0],vbgmm_of.means[:,1],'ro')
     plt.show()
     
-    print np.array(vbgmm.predictive_pdf(np.array([[0,0],[30,20]])))
+    resps = vbgmm.predict_cluster_prob( X )
+    clust = vbgmm.predict_cluster( X )
     
 #    print "Selected number of clusters {0}".format(vbgmm_of.means.shape[0])
     
