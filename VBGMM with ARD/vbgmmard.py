@@ -73,15 +73,14 @@ class VBGMMARD(object):
     
     '''
     
-    def __init__(self, max_components, dof = None, covar = None, weights = None, beta = 1e-3, 
-                       means = None,init_type = 'auto',max_iter = 100,
+    def __init__(self, max_components,means = None, dof = None, covar = None,  
+                       weights = None, beta = 1e-3, max_iter = 100,
                        conv_thresh = 1e-5,n_kmean_inits = 3, prune_thresh = 1e-2,
                        rand_state = 1, mfa_max_iter = 3):
         self.n_components               =  max_components
         self.dof0, self.scale_inv0      =  dof,covar
         self.weights0,self.means0       =  weights,means
         self.beta0                      =  beta
-        self.init_type                  =  init_type
         self.max_iter,self.conv_thresh  =  max_iter, conv_thresh
         self.n_kmean_inits              =  n_kmean_inits
         self.prune_thresh               =  prune_thresh
@@ -266,6 +265,7 @@ class VBGMMARD(object):
         Parameters:
         -----------
         X: numpy array of size [n_samples, n_features]
+           Data matrix
         '''
         for i,W in enumerate(self.scale):
             self.scale[i,:,:] = pinvh(pinvh(W) - self.scale_inv0)
@@ -423,16 +423,75 @@ class VBGMMARD(object):
 
 
 
-class VBGMMARDClassifier(object):
+class VBGMMARDGClassifier(object):
+    '''
+    Generative classifier
     
-    def __init__(self):
-        pass    
+    '''
     
-    
-    def fit(self):
+    def __init__(self, max_components, means = None, dof = None, covar = None,  
+                       weights = None, beta = 1e-3, max_iter = 100,
+                       conv_thresh = 1e-5,n_kmean_inits = 3, prune_thresh = 1e-2,
+                       rand_state = 1, mfa_max_iter = 3):
+                           
+        self.n_components               =  max_components
+        self.dof, self.covar            =  dof,covar
+        self.weights,self.means         =  weights,means
+        self.beta                       =  beta
+        self.max_iter,self.conv_thresh  =  max_iter, conv_thresh
+        self.n_kmean_inits              =  n_kmean_inits
+        self.prune_thresh               =  prune_thresh
+        self.rand_state                 =  rand_state
+        self.mfa_max_iter               =  mfa_max_iter
+        # boolean that identifies whether model was fitted or not
+        self.is_fitted                  =  True
+        
+        
+    def _init_params(self):
+        '''
+        Initialise parameters
+        '''
         pass
+        
+
+    
+    def _fit(self,X,Y):
+        '''
+        Finds distribution of explanatory variables for each class
+        '''
+        # calculate prior p( y = Ck)
+        prior = np.sum(Y, axis = 0) / self.n
+        
+        # calculate p(x | y = Ck) * p( y = Ck )
+        post  = [VBGMMARD(self.n_components[k],self.means[k,:], self.dof[k],
+                 self.covar[k],self.weights[k], self.beta[k],)]
+        
+        
+        
+        
+        
     
     
+    def fit(self,X,Y):
+        '''
+        Fits classification model
+        
+        Parameters:
+        -----------
+        X: numpy array of size [n_samples, n_features]
+           Matrix of explanatory variables
+           
+        Y: numpy array of size [n_samples, 1]
+           Vector of dependent variables
+        '''
+        # binarise
+        
+        # initialise all parameters
+        
+        
+        
+        
+        
     def predict(self,x):
         '''
         Predicts class to which observations belong
@@ -464,15 +523,6 @@ class VBGMMARDClassifier(object):
         probs: numpy array of size [n_sample_test, n_classes]
            Matrix of probabilities
         '''
-        pass
-    
-    
-class VBGMMARDNoveltyDetector(object):
-    
-    def __init__(self,components):
-        self.components = components
-    
-    def fit(self,X,Y):
         pass
     
 
