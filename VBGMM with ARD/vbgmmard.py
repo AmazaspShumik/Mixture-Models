@@ -75,8 +75,8 @@ class VBGMMARD(object):
     
     def __init__(self, max_components,means = None, dof = None, covar = None,  
                        weights = None, beta = 1e-3, max_iter = 100,
-                       conv_thresh = 1e-5,n_kmean_inits = 3, prune_thresh = 1e-2,
-                       rand_state = 1, mfa_max_iter = 3):
+                       conv_thresh = 1e-5,n_kmean_inits = 3, prune_thresh = 1e-3,
+                       rand_state = 1, mfa_max_iter = 2):
         self.n_components               =  max_components
         self.dof0, self.scale_inv0      =  dof,covar
         self.weights0,self.means0       =  weights,means
@@ -112,7 +112,7 @@ class VBGMMARD(object):
         # broad prior over precision matrix
         if self.scale_inv0 is None:
             # heuristics that seems to work pretty good
-            diag_els        = (np.max(X,0) - np.min(X,0))**2
+            diag_els        = np.abs(np.max(X,0) - np.min(X,0))
             self.scale_inv0 = np.diag( diag_els  )
             self.scale0     = np.diag( 1./ diag_els )
             
@@ -173,10 +173,11 @@ class VBGMMARD(object):
         x_diff         = X - self.means[k,:]
         e_quad_form    = np.sum( np.dot(x_diff,self.scale[k,:,:])*x_diff, axis = 1 )
         e_quad_form   *= self.dof[k]
+        e_quad_form   += self.d / self.beta[k] 
         
         # responsibilities without normalisation
-        log_pnk        = np.log(self.weights[k]) + 0.5*e_logdet_prec - e_quad_form
-        log_pnk       -= 0.5*self.d / self.beta[k]
+        log_pnk        = np.log(self.weights[k]) + 0.5*e_logdet_prec - 0.5*e_quad_form
+        log_pnk       -= self.d * np.log( 2 * np.pi)
         return log_pnk
                 
                 
@@ -196,10 +197,14 @@ class VBGMMARD(object):
         '''
         # log of responsibilities before normalisaton
         log_p     = [self._update_logresp_k(X,k) for k in range(self.n_components)]
-        log_sum_p = logsumexp(log_p,axis = 0, keepdims = True)
-        log_p    -= log_sum_p
+        log_p     = np.array(log_p).T
+        log_p    -= logsumexp(log_p, axis = 1, keepdims = True)
+        print "\n log p"
+        print np.sum(log_p,0)
+        print 'P'
+        print np.sum(np.exp(log_p),0)
         p         = np.exp(log_p)
-        return p.T
+        return p
     
     
     def _update_means_precisions(self, Nk, Xk, Sk):
@@ -539,7 +544,7 @@ if __name__ == '__main__':
     # [-4,-13]
     X[200:300,0] = np.random.normal(-23,1,100)
     X[200:300,1] = np.random.normal(-23,2,100)
-    vbgmm = VBGMMARD(max_components = 5,init_type = 'auto')
+    vbgmm = VBGMMARD(max_components = 5)
     resps = vbgmm.fit(X)
     plt.plot(X[:,0],X[:,1],'ro')
     plt.plot(vbgmm.means[:,0],vbgmm.means[:,1],'go',markersize = 10)
@@ -567,7 +572,7 @@ if __name__ == '__main__':
     
     os.chdir("/Users/amazaspshaumyan/Desktop/MixtureExperts/VBGMM with ARD/")
     Data = pd.read_csv("old_faithful.txt")
-    vbgmm_of = VBGMMARD(max_components = 20, init_type = 'auto', conv_thresh = 1e-3)
+    vbgmm_of = VBGMMARD(max_components = 20, conv_thresh = 1e-3)
     r = vbgmm_of.fit(np.array(Data[['eruptions','waiting']]))
     plt.plot(Data['eruptions'],Data['waiting'],'bo')
     plt.plot(vbgmm_of.means[:,0],vbgmm_of.means[:,1],'ro')
