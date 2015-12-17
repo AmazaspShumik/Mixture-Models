@@ -10,6 +10,7 @@ import warnings
 
 
 #TODO: lower bound & convergence check using lower bound
+#TODO: Use column sparse matrices in multi label classification
 
 
 
@@ -245,29 +246,6 @@ class VBGMMARD(object):
             mean_diff = mean_before - mean_after
             conv  = conv and np.sum(np.abs(mean_diff)) / self.d < self.conv_thresh
         return conv
-    
-                             
-    def _postprocess(self,X):
-        '''
-        Performs postprocessing after convergence
-        
-        Theoretical Note:
-        =================
-        We needed extremely broad prior covariance for good convergence, and 
-        irrelevant cluster elimination, however broad prior also adds huge 
-        bias to estimated covariance, so after convergence we remove part of 
-        covariance that is due to prior and update weights after that.
-        
-        Parameters:
-        -----------
-        X: numpy array of size [n_samples, n_features]
-           Data matrix
-        '''
-        for i,W in enumerate(self.scale):
-            pass
-            #self.scale[i,:,:] = pinvh(pinvh(W) - self.scale_inv0)
-        resps            = self._update_resps(X)
-        self.weights     = np.sum(resps,0) / self.n
         
         
     def fit(self, X):
@@ -332,14 +310,12 @@ class VBGMMARD(object):
                     
                     # if converged postprocess
                     if self.converged == True:
-                        self._postprocess(X)
                         self.is_fitted = True
                         return
                         
         warnings.warn( ("Algorithm did not converge!!! Maximum number of iterations "
                         "achieved. Try to change either maximum number of iterations "
                         "or conv_thresh parameters"))
-        self._postprocess(X)
         self.is_fitted  = True
         
         
@@ -403,8 +379,12 @@ class VBGMMARD(object):
         probs : numpy array of size [n_samples_test_set, 1]
            Value of pdf of predictive distribution at x
         '''
+        # check whether model is fitted 
+        if self.is_fitted is False:
+            raise TypeError('Model is not fitted')
+            
         # check whether prediction parameters were calculated before
-        if self.is_fitted is True and self.St is None:
+        if self.St is None:
             # if not calculate predictive parameters
             self._predict_params()
         
@@ -425,7 +405,7 @@ class VBGMMARD(object):
 
 
 
-class VBGMMARDGClassifier(object):
+class VBGMMARDClassifier(object):
     '''
     Generative classifier, density of each class is approximated with VBGMMARD
     and then 
@@ -495,6 +475,7 @@ class VBGMMARDGClassifier(object):
         Parameters:
         -----------
         y: numpy array of size 
+           Ground truth matrix
         '''        
         # small helper function
         def passer(iterable,index):
@@ -503,23 +484,24 @@ class VBGMMARDGClassifier(object):
             return iterable
         
         # initialise mixture of gaussians for each class
-        self.classifiers = []
+        self.clfs = []
         for i in range(self.binariser.k):
-            self.clfs.append( VBGMMARD(means         = passer(self.means,i),
-                                       dof           = passer(self.dof,i), 
-                                       covar         = passer(self.covar,i), 
-                                       weights       = passer(self.weights,i),
-                                       beta          = self.beta,
-                                       max_iter      = self.max_iter,
-                                       conv_thresh   = self.conv_thresh,
-                                       n_kmean_inits = self.n_kmean_inits,       
-                                       prune_thresh  = self.prune_thresh,       
-                                       rand_state    = self.rand_state,       
-                                       mfa_max_iter  = self.mfa_max_iter)
-                            )
+            self.clfs.append( VBGMMARD(max_components = self.n_components[i],
+                                       means          = passer(self.means,i),
+                                       dof            = passer(self.dof,i), 
+                                       covar          = passer(self.covar,i), 
+                                       weights        = passer(self.weights,i),
+                                       beta           = self.beta,
+                                       max_iter       = self.max_iter,
+                                       conv_thresh    = self.conv_thresh,
+                                       n_kmean_inits  = self.n_kmean_inits,       
+                                       prune_thresh   = self.prune_thresh,       
+                                       rand_state     = self.rand_state,       
+                                       mfa_max_iter   = self.mfa_max_iter)
+                             )
         
         # prior 
-        self.prior = np.sum(y, axis = 0) / self.n
+        self.prior = np.sum(y, axis = 0) / y.shape[0]
         
 
     def fit(self,X,Y):
@@ -540,9 +522,9 @@ class VBGMMARDGClassifier(object):
         
         # initialise all parameters
         self._init_params(y)
-        
+                
         # fit VBGMMARD for each class
-        self.clfs = [clf.fit(X[y[:,cl_idx]==1,:]) for cl_idx,clf in enumerate(self.clfs)]
+        [clf.fit(X[y[:,cl_idx]==1,:]) for cl_idx,clf in enumerate(self.clfs)]
           
         
     def predict(self,x):
@@ -559,7 +541,7 @@ class VBGMMARDGClassifier(object):
         classes: numpy array of size [n_sample_test, 1]
            Predicted class            
         '''
-        probs = self.predict_probs(x)
+        probs = self.predict_prob(x)
         return self.binariser.convert_prob_matrix_to_vec(probs)
         
 
@@ -577,8 +559,10 @@ class VBGMMARDGClassifier(object):
         probs: numpy array of size [n_sample_test, n_classes]
            Matrix of probabilities
         '''
-        return [clf.predictive_pdf(x)*prior for prior,clf in zip(self.prior,self.clfs)]
-    
+        pr = [clf.predictive_pdf(x)*prior for prior,clf in zip(self.prior,self.clfs)]
+        P  = np.array(pr).T
+        P  = P / np.sum(P, axis = 1, keepdims = True)
+        return P
     
 #---------------- Multivariate t distribution (Helper class) ----------------------#
       
@@ -598,7 +582,9 @@ class StudentMultivariate(object):
         Calculates value of logpdf at point x
         '''
         xdiff     = x - self.mu
-        quad_form = np.dot(np.dot(xdiff,self.L),xdiff.T)
+        quad_form = np.sum( np.dot(xdiff,self.L)*xdiff, axis = 1)
+        
+        
         return ( gammaln( 0.5 * (self.df + self.d)) - gammaln( 0.5 * self.df ) +
                  0.5 * np.linalg.slogdet(self.L)[1] - 0.5*self.d*np.log( self.df*np.pi) -
                  0.5 * (self.df + self.d) * np.log( 1 + quad_form / self.df )
@@ -699,60 +685,7 @@ class LabelBinariser(object):
         Y     = np.array([self.inverse_mapping[e] for e in Y_max])
         return Y
 
-
-        
-if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    X = np.zeros([300,2])
-    # [1,1]
-    X[0:100,0] = np.random.normal(1,4,100)
-    X[0:100,1] = np.random.normal(1,8,100) 
-    # [12,5]
-    X[100:200,0] = np.random.normal(205,3,100)
-    X[100:200,1] = np.random.normal(19,3,100) 
-    # [-4,-13]
-    X[200:300,0] = np.random.normal(-123,1,100)
-    X[200:300,1] = np.random.normal(-23,2,100)
-    vbgmm = VBGMMARD(max_components = 5)
-    resps = vbgmm.fit(X)
-    plt.plot(X[:,0],X[:,1],'ro')
-    plt.plot(vbgmm.means[:,0],vbgmm.means[:,1],'go',markersize = 10)
-    plt.show()
     
-    print "\n real means"
-    print np.mean(X[0:100,:],0)
-    print np.mean(X[100:200,:],0)
-    print np.mean(X[200:300,:],0)
-    
-    print '\n means by algorithm'
-    print vbgmm.means
-    
-    print '\n covariance by algorithm'
-    print vbgmm.get_params()["covars"]
-    
-    print "\n real covariance"
-    print np.cov(X[0:100,:].T)
-    print np.cov(X[100:200,:].T)
-    print np.cov(X[200:300,:].T)
-    
-    # Old Faithful Data
-    import os
-    import pandas as pd
-    
-    os.chdir("/Users/amazaspshaumyan/Desktop/MixtureExperts/VBGMM with ARD/")
-    Data = pd.read_csv("old_faithful.txt")
-    vbgmm_of = VBGMMARD(max_components = 20, conv_thresh = 1e-3)
-    r = vbgmm_of.fit(np.array(Data[['eruptions','waiting']]))
-    plt.plot(Data['eruptions'],Data['waiting'],'bo')
-    plt.plot(vbgmm_of.means[:,0],vbgmm_of.means[:,1],'ro')
-    plt.show()
-    
-    resps = vbgmm.predict_cluster_prob( X )
-    clust = vbgmm.predict_cluster( X )
-    
-    probs = vbgmm.predictive_pdf(X)
-    
-#    print "Selected number of clusters {0}".format(vbgmm_of.means.shape[0])
     
 
     
