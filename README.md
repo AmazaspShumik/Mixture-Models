@@ -16,3 +16,7 @@ Mixture Discriminant Analysis is generative classification algorithm, that assum
 
 
 
+
+
+[![Bitdeli Badge](https://d2weczhvl823v0.cloudfront.net/AmazaspShumik/mixture-models/trend.png)](https://bitdeli.com/free "Bitdeli Badge")
+
