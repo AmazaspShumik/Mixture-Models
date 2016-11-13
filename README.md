@@ -1,4 +1,5 @@
 # Mixture-of-Experts-Models
+This repository is not maintained anymore!
 
 ##  Hierarchical Mixture of Experts
 
